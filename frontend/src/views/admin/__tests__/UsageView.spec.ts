@@ -727,7 +727,7 @@ describe('admin UsageView ranking tab', () => {
     expect(wrapper.find('[data-test="ranking"]').exists()).toBe(false)
 
     const tabs = wrapper.findAll('[data-testid="usage-detail-tab"]')
-    expect(tabs).toHaveLength(3)
+    expect(tabs).toHaveLength(4)
     await tabs[2].trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-test="ranking"]').exists()).toBe(true)
@@ -875,6 +875,135 @@ describe('observer own usage view', () => {
     await flushPromises()
     expect(wrapper.findAll('[data-testid="usage-detail-tab"]')).toHaveLength(1)
     expect(own.listErrors).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+})
+
+
+describe('admin UsageView upstream cost toggle and analytics tab', () => {
+  let store: Record<string, string>
+  beforeEach(async () => {
+    vi.useFakeTimers()
+    store = {}
+    vi.mocked(localStorage.getItem).mockImplementation((key: string) => store[key] ?? null)
+    vi.mocked(localStorage.setItem).mockImplementation((key: string, value: string) => { store[key] = value })
+    const { resetUpstreamCostVisibilityForTests } = await import('@/composables/useUpstreamCostVisibility')
+    resetUpstreamCostVisibilityForTests()
+    Object.keys(routeQuery).forEach((key) => delete routeQuery[key])
+    list.mockReset().mockResolvedValue({ items: [], total: 0, pages: 0 })
+    exportList.mockReset().mockResolvedValue({
+      items: [{
+        id: 1, created_at: '2026-10-01T00:00:00Z', model: 'm', request_type: 'sync',
+        input_tokens: 1, output_tokens: 1, cache_read_tokens: 0, cache_creation_tokens: 0,
+        total_cost: 2, actual_cost: 1, rate_multiplier: 1, account_rate_multiplier: 0.5, duration_ms: 10,
+      }],
+      total: 1,
+      pages: 1,
+    })
+    getStats.mockReset().mockResolvedValue({
+      total_requests: 0, total_input_tokens: 0, total_output_tokens: 0,
+      total_cache_tokens: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, total_account_cost: 5, average_duration_ms: 0,
+    })
+    getSnapshotV2.mockReset().mockResolvedValue({ trend: [], models: [], groups: [] })
+    getModelStats.mockReset().mockResolvedValue({ models: [] })
+    aoaToSheet.mockClear()
+    sheetAddAoa.mockClear()
+  })
+
+  afterEach(async () => {
+    vi.useRealTimers()
+    const { resetUpstreamCostVisibilityForTests } = await import('@/composables/useUpstreamCostVisibility')
+    resetUpstreamCostVisibilityForTests()
+    vi.mocked(localStorage.getItem).mockImplementation(() => null)
+    vi.mocked(localStorage.setItem).mockImplementation(() => undefined)
+  })
+
+  const UsageStatsCardsStub = { props: ['stats', 'showAccountCost'], template: '<div data-test="stats" />' }
+  const UsageTableCostStub = { props: ['columns', 'showAccountBilling'], template: '<div data-test="usage-table" />' }
+  const AnalyticsStub = { props: ['startDate', 'endDate', 'groupId', 'accountId', 'model', 'showUpstreamCost'], template: '<div data-test="analytics" />' }
+
+  const mountAdmin = () => mount(UsageView, {
+    global: { stubs: {
+      AppLayout: AppLayoutStub, UsageStatsCards: UsageStatsCardsStub, UsageFilters: UsageFiltersStub,
+      UsageTable: UsageTableCostStub, UsageExportProgress: true, UsageCleanupDialog: true,
+      UserBalanceHistoryModal: true, Pagination: true, Select: true, DateRangePicker: true,
+      Icon: true, TokenUsageTrend: true, ModelDistributionChart: true, GroupDistributionChart: true,
+      EndpointDistributionChart: true, UserTokenRanking: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+      UsageAnalyticsPanel: AnalyticsStub,
+    } },
+  })
+
+  it('hides every upstream cost surface at once and persists the choice', async () => {
+    const wrapper = mountAdmin()
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    expect(wrapper.findComponent(UsageStatsCardsStub).props('showAccountCost')).toBe(true)
+    expect(wrapper.findComponent(UsageTableCostStub).props('showAccountBilling')).toBe(true)
+
+    await wrapper.get('[data-testid="usage-upstream-cost-toggle"]').trigger('click')
+
+    expect(wrapper.findComponent(UsageStatsCardsStub).props('showAccountCost')).toBe(false)
+    expect(wrapper.findComponent(UsageTableCostStub).props('showAccountBilling')).toBe(false)
+    expect(store['admin-usage-upstream-cost-visible']).toBe('0')
+
+    await (wrapper.vm as any).exportToExcel()
+    await flushPromises()
+    const headers = aoaToSheet.mock.calls[0][0][0] as string[]
+    expect(headers).not.toContain('usage.accountBilled')
+    expect(headers).not.toContain('usage.accountMultiplier')
+    const row = sheetAddAoa.mock.calls[0][1][0] as unknown[]
+    expect(row).toHaveLength(headers.length)
+
+    const tabs = wrapper.findAll('[data-testid="usage-detail-tab"]')
+    await tabs[3].trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(AnalyticsStub).props('showUpstreamCost')).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('restores the hidden state from storage and exports account columns when visible', async () => {
+    store['admin-usage-upstream-cost-visible'] = '0'
+    const hidden = mountAdmin()
+    await flushPromises()
+    expect(hidden.findComponent(UsageTableCostStub).props('showAccountBilling')).toBe(false)
+    hidden.unmount()
+
+    const { resetUpstreamCostVisibilityForTests } = await import('@/composables/useUpstreamCostVisibility')
+    resetUpstreamCostVisibilityForTests()
+    delete store['admin-usage-upstream-cost-visible']
+    const visible = mountAdmin()
+    await flushPromises()
+    await (visible.vm as any).exportToExcel()
+    await flushPromises()
+    const headers = aoaToSheet.mock.calls.at(-1)![0][0] as string[]
+    expect(headers).toContain('usage.accountBilled')
+    const row = sheetAddAoa.mock.calls.at(-1)![1][0] as unknown[]
+    expect(row[headers.indexOf('usage.accountBilled')]).toBe('1.000000')
+    visible.unmount()
+  })
+
+  it('offers sortable TPS and cache hit rate columns and lazily mounts analytics with filters', async () => {
+    const wrapper = mountAdmin()
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+    const columns = wrapper.findComponent(UsageTableCostStub).props('columns') as Array<{ key: string; sortable: boolean }>
+    expect(columns).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: 'output_tps', sortable: true }),
+      expect.objectContaining({ key: 'cache_hit_rate', sortable: true }),
+    ]))
+
+    expect(wrapper.findComponent(AnalyticsStub).exists()).toBe(false)
+    const vm = wrapper.vm as any
+    vm.filters.group_id = 3
+    vm.filters.model = 'gpt-5'
+    const tabs = wrapper.findAll('[data-testid="usage-detail-tab"]')
+    await tabs[3].trigger('click')
+    await flushPromises()
+    const panel = wrapper.findComponent(AnalyticsStub)
+    expect(panel.exists()).toBe(true)
+    expect(panel.props()).toEqual(expect.objectContaining({ groupId: 3, model: 'gpt-5', showUpstreamCost: true }))
+    expect(panel.props('startDate')).toBeTruthy()
     wrapper.unmount()
   })
 })

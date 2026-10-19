@@ -63,7 +63,8 @@ describe('Usage timing details', () => {
     }] })
     const wrapper = mount(UsageTimingDialog, { props: { record: { ...row(1), output_tokens: 1_095, duration_ms: 9_250, first_token_ms: 9_240 } }, ...options })
     await flushPromises()
-    expect(wrapper.text()).toContain('usage.latencyTps 118 t/s')
+    // Buffered output flushed 10ms after the first token has no trustworthy generation TPS.
+    expect(wrapper.text()).toContain('usage.latencyTps —')
     expect(wrapper.text()).toContain('requestTiming.tpsNote')
     expect(wrapper.text()).toContain('requestTiming.health.firstSlow')
     expect(wrapper.text()).toContain('requestTiming.health.largest')

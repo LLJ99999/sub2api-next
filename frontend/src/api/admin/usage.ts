@@ -208,9 +208,78 @@ export async function cancelCleanupTask(taskId: number): Promise<{ id: number; s
   return data
 }
 
+// ==================== Analytics ====================
+
+export type UsageAnalyticsDimension = 'account' | 'group' | 'model'
+
+export interface UsageAnalyticsParams {
+  dimension: UsageAnalyticsDimension
+  start_date: string
+  end_date: string
+  group_id?: number
+  account_id?: number
+  model?: string
+  limit?: number
+}
+
+export interface UsageAnalyticsRow {
+  /** 账号 ID / 分组 ID（无分组为 "0"）/ 请求模型名；合计行为空串 */
+  key: string
+  id?: number
+  name: string
+  platform?: string
+  requests: number
+  /** ops_error_logs 中状态码 >= 400 的请求数；不可用时为 null */
+  error_count: number | null
+  input_tokens: number
+  output_tokens: number
+  cache_creation_tokens: number
+  cache_read_tokens: number
+  total_tokens: number
+  /** 0–1；无提示 token 时为 null */
+  cache_hit_rate: number | null
+  first_token_p50_ms: number | null
+  first_token_p95_ms: number | null
+  output_tps_p50: number | null
+  output_tps_p95: number | null
+  /** SUM(actual_cost) */
+  revenue: number
+  /** SUM((account_stats_cost ?? total_cost) × (account_rate_multiplier ?? 1)) */
+  upstream_cost: number
+  gross_margin: number
+  /** 0–1，可为负；收入 <= 0 时为 null */
+  margin_pct: number | null
+}
+
+export interface UsageAnalyticsResponse {
+  dimension: UsageAnalyticsDimension
+  start_time: string
+  end_time: string
+  rows: UsageAnalyticsRow[]
+  totals: UsageAnalyticsRow
+  truncated: boolean
+  error_count_available: boolean
+}
+
+/**
+ * Aggregate usage by upstream account / group / model (admin only).
+ * start_date/end_date are required (inclusive, <= 93 days).
+ */
+export async function getAnalytics(
+  params: UsageAnalyticsParams,
+  options?: { signal?: AbortSignal }
+): Promise<UsageAnalyticsResponse> {
+  const { data } = await apiClient.get<UsageAnalyticsResponse>('/admin/usage/analytics', {
+    params,
+    signal: options?.signal
+  })
+  return data
+}
+
 export const adminUsageAPI = {
   list,
   getStats,
+  getAnalytics,
   searchUsers,
   searchApiKeys,
   listCleanupTasks,

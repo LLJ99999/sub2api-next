@@ -1,7 +1,7 @@
 <template>
   <AppLayout>
     <div class="space-y-6">
-      <UsageStatsCards :stats="usageStats" />
+      <UsageStatsCards :stats="usageStats" :show-account-cost="showUpstreamCost" />
       <!-- Charts Section -->
       <div class="space-y-4">
         <div class="card p-4">
@@ -19,6 +19,21 @@
               <div class="w-28">
                 <Select v-model="granularity" :options="granularityOptions" @change="loadChartData" />
               </div>
+              <!-- 上游成本显示开关：关闭后整页隐藏上游成本，便于截图 -->
+              <button
+                v-if="!props.observerMode"
+                type="button"
+                data-testid="usage-upstream-cost-toggle"
+                class="btn btn-secondary px-2"
+                :class="showUpstreamCost ? '' : 'text-amber-600 dark:text-amber-400'"
+                :title="showUpstreamCost ? t('usage.upstreamCostToggle.hide') : t('usage.upstreamCostToggle.show')"
+                :aria-label="showUpstreamCost ? t('usage.upstreamCostToggle.hide') : t('usage.upstreamCostToggle.show')"
+                :aria-pressed="!showUpstreamCost"
+                @click="toggleUpstreamCost"
+              >
+                <Icon :name="showUpstreamCost ? 'eye' : 'eyeOff'" size="sm" />
+                <span v-if="!showUpstreamCost" class="ml-1 hidden text-xs md:inline">{{ t('usage.upstreamCostToggle.hiddenBadge') }}</span>
+              </button>
             </div>
           </div>
         </div>
@@ -88,7 +103,7 @@
 
         <UsageFilters v-model="filters" ref="usageFiltersRef" flat :mode="activeTab" class="border-b border-gray-100 dark:border-dark-700/50" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
           <template #after-reset>
-            <div v-if="activeTab !== 'ranking'" class="relative" ref="columnDropdownRef">
+            <div v-if="activeTab !== 'ranking' && activeTab !== 'analytics'" class="relative" ref="columnDropdownRef">
               <button
                 data-testid="usage-column-settings"
                 @click="showColumnDropdown = !showColumnDropdown"
@@ -136,6 +151,7 @@
             :default-sort-key="'created_at'"
             :default-sort-order="'desc'"
             :cache-rate-audience="props.observerMode ? 'user' : 'admin'"
+            :show-account-billing="showUpstreamCost"
             @sort="handleSort"
             @userClick="handleUserClick"
             @ipGeoBatchFailed="handleIpGeoBatchFailed"
@@ -165,6 +181,16 @@
             :filters="breakdownFilters"
             :model="filters.model"
             @select-user="handleRankingSelectUser"
+          />
+        </div>
+        <div v-if="!props.observerMode && analyticsMounted" v-show="activeTab === 'analytics'" class="overflow-hidden rounded-b-2xl">
+          <UsageAnalyticsPanel
+            :start-date="filters.start_date || startDate"
+            :end-date="filters.end_date || endDate"
+            :group-id="filters.group_id"
+            :account-id="filters.account_id"
+            :model="filters.model"
+            :show-upstream-cost="showUpstreamCost"
           />
         </div>
       </div>
@@ -206,6 +232,8 @@ import AppLayout from '@/components/layout/AppLayout.vue'; import Pagination fro
 import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'; import UsageFilters from '@/components/admin/usage/UsageFilters.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'; import UsageExportProgress from '@/components/admin/usage/UsageExportProgress.vue'
 import UserTokenRanking from '@/components/admin/usage/UserTokenRanking.vue'
+import UsageAnalyticsPanel from '@/components/admin/usage/UsageAnalyticsPanel.vue'
+import { useUpstreamCostVisibility } from '@/composables/useUpstreamCostVisibility'
 import UsageCleanupDialog from '@/components/admin/usage/UsageCleanupDialog.vue'
 import UserBalanceHistoryModal from '@/components/admin/user/UserBalanceHistoryModal.vue'
 import OpsErrorLogTable from '@/views/admin/ops/components/OpsErrorLogTable.vue'
@@ -221,6 +249,10 @@ const props = withDefaults(defineProps<{ observerMode?: boolean }>(), { observer
 provide(observerUsageContext, props.observerMode)
 const { t } = useI18n()
 const appStore = useAppStore()
+// 观察者模式保持原有展示；管理端由「上游成本」开关统一控制所有上游成本信息。
+const upstreamCostVisibility = useUpstreamCostVisibility()
+const showUpstreamCost = computed(() => props.observerMode || upstreamCostVisibility.visible.value)
+const toggleUpstreamCost = () => upstreamCostVisibility.toggle()
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
 type ModelDistributionSource = 'requested' | 'upstream' | 'mapping'
@@ -593,6 +625,8 @@ const exportToExcel = async () => {
   try {
     let p = 1; let total = pagination.total; let exportedCount = 0
     const XLSX = await import('xlsx')
+    // 导出时快照开关状态：关闭时不导出账号倍率与账号计费列。
+    const includeUpstreamCost = showUpstreamCost.value
     const headers = [
       t('usage.time'), t('admin.usage.user'), t('usage.apiKeyFilter'),
       t('admin.usage.account'), t('usage.requestedModel'), t('usage.sentUpstreamModel'), t('usage.upstreamResponseModel'), t('usage.upstreamModelMismatch'), t('usage.requestedReasoningEffort'), t('usage.reasoningEffort'), t('admin.usage.group'),
@@ -603,7 +637,10 @@ const exportToExcel = async () => {
       ...(showUsageCacheRate(appStore.cachedPublicSettings, props.observerMode ? 'user' : 'admin') ? [t('usage.latencyCacheRate')] : []),
       t('admin.usage.inputCost'), t('admin.usage.outputCost'),
       t('admin.usage.cacheReadCost'), t('admin.usage.cacheCreationCost'),
-      t('usage.rate'), t('usage.accountMultiplier'), t('usage.original'), t('usage.userBilled'), t('usage.accountBilled'),
+      t('usage.rate'),
+      ...(includeUpstreamCost ? [t('usage.accountMultiplier')] : []),
+      t('usage.original'), t('usage.userBilled'),
+      ...(includeUpstreamCost ? [t('usage.accountBilled')] : []),
       t('usage.firstToken'), t('usage.duration'),
       t('admin.usage.requestId'), t('admin.usage.upstreamRequestId'), t('usage.userAgent'), t('admin.usage.ipAddress')
     ]
@@ -622,9 +659,11 @@ const exportToExcel = async () => {
         ...(showUsageCacheRate(appStore.cachedPublicSettings, props.observerMode ? 'user' : 'admin') ? [formatUsageCacheRate(log) ?? ''] : []),
         log.input_cost?.toFixed(6) || '0.000000', log.output_cost?.toFixed(6) || '0.000000',
         log.cache_read_cost?.toFixed(6) || '0.000000', log.cache_creation_cost?.toFixed(6) || '0.000000',
-        log.rate_multiplier?.toPrecision(4) || '1.00', (log.account_rate_multiplier ?? 1).toPrecision(4),
+        log.rate_multiplier?.toPrecision(4) || '1.00',
+        ...(includeUpstreamCost ? [(log.account_rate_multiplier ?? 1).toPrecision(4)] : []),
         log.total_cost?.toFixed(6) || '0.000000', log.actual_cost?.toFixed(6) || '0.000000',
-        ((log.account_stats_cost ?? log.total_cost) * (log.account_rate_multiplier ?? 1)).toFixed(6), log.first_token_ms ?? '', log.duration_ms,
+        ...(includeUpstreamCost ? [((log.account_stats_cost ?? log.total_cost) * (log.account_rate_multiplier ?? 1)).toFixed(6)] : []),
+        log.first_token_ms ?? '', log.duration_ms,
         log.request_id || '', log.upstream_request_id || '', log.user_agent || '', log.ip_address || ''
       ])
       if (rows.length) {
@@ -667,6 +706,11 @@ const allColumns = computed(() => [
   { key: 'tokens', label: t('usage.tokens'), sortable: false },
   { key: 'cost', label: t('usage.cost'), sortable: false },
   { key: 'latency', label: t('usage.latency'), sortable: false },
+  // 独立指标列仅管理端提供：服务端按表达式排序（需带时间范围，页面始终带）。
+  ...(!props.observerMode ? [{ key: 'output_tps', label: t('usage.latencyTps'), sortable: true }] : []),
+  ...(!props.observerMode && showUsageCacheRate(appStore.cachedPublicSettings, 'admin')
+    ? [{ key: 'cache_hit_rate', label: t('usage.latencyCacheRate'), sortable: true }]
+    : []),
   { key: 'created_at', label: t('usage.time'), sortable: true },
   { key: 'request_id', label: t('admin.usage.requestId'), sortable: false },
   { key: 'upstream_request_id', label: t('admin.usage.upstreamRequestId'), sortable: false },
@@ -800,23 +844,26 @@ const loadSavedColumns = () => {
 }
 
 // Detail tabs
-type DetailTab = 'usage' | 'errors' | 'ranking'
+type DetailTab = 'usage' | 'errors' | 'ranking' | 'analytics'
 const activeTab = ref<DetailTab>('usage')
 const canViewErrors = computed(() => !props.observerMode || !!appStore.cachedPublicSettings?.allow_user_view_error_requests)
 const detailTabs = computed(() => [
   { key: 'usage' as const, label: t('usage.tabs.usage'), icon: 'document' as const },
   ...(canViewErrors.value ? [{ key: 'errors' as const, label: t('usage.tabs.errors'), icon: 'exclamationTriangle' as const }] : []),
   ...(!props.observerMode ? [{ key: 'ranking' as const, label: t('usage.tabs.ranking'), icon: 'chart' as const }] : []),
+  ...(!props.observerMode ? [{ key: 'analytics' as const, label: t('usage.tabs.analytics'), icon: 'chartBar' as const }] : []),
 ])
 const usageFiltersRef = ref<InstanceType<typeof UsageFilters> | null>(null)
 const rankingMounted = ref(false)
 const rankingRef = ref<InstanceType<typeof UserTokenRanking> | null>(null)
+const analyticsMounted = ref(false)
 
 const switchTab = (tab: DetailTab) => {
   if (!detailTabs.value.some(item => item.key === tab)) return
   activeTab.value = tab
   if (tab === 'errors' && errRows.value.length === 0) loadAdminErrors()
   if (tab === 'ranking') rankingMounted.value = true
+  if (tab === 'analytics') analyticsMounted.value = true
 }
 
 // Error tab state
