@@ -109,7 +109,7 @@ func (h *GatewayHandler) SystemOne(c *gin.Context) {
 		return
 	}
 
-	fs := NewFailoverState(h.maxAccountSwitches, false)
+	fs := NewFailoverState(h.maxAccountSwitches, false).WithTimeBudget(failoverTimeBudgetFromConfig(h.cfg))
 	for {
 		if failoverClientGone(c) {
 			return

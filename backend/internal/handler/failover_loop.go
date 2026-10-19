@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"go.uber.org/zap"
@@ -139,6 +140,39 @@ type FailoverState struct {
 	profitVetoedAccountIDs map[int64]struct{}
 	// profitVetoCount 本次请求累计的利润否决次数，用于 maxProfitVetoAttempts 上限。
 	profitVetoCount int
+
+	// startedAt / timeBudget 实现 failover 总时间预算（gateway.failover_time_budget_seconds）：
+	// 超出预算后不再换号/同账号重试，直接返回最后一次上游错误（保留原始状态码）。
+	startedAt  time.Time
+	timeBudget time.Duration
+}
+
+// failoverTimeBudgetFromConfig 读取 failover 总时间预算，0 / 未配置表示不限制。
+func failoverTimeBudgetFromConfig(cfg *config.Config) time.Duration {
+	if cfg == nil || cfg.Gateway.FailoverTimeBudgetSeconds <= 0 {
+		return 0
+	}
+	return time.Duration(cfg.Gateway.FailoverTimeBudgetSeconds) * time.Second
+}
+
+// failoverTimeBudgetExceeded 判断自 startedAt 起是否已超出 failover 时间预算。
+func failoverTimeBudgetExceeded(startedAt time.Time, budget time.Duration) bool {
+	return budget > 0 && !startedAt.IsZero() && time.Since(startedAt) >= budget
+}
+
+// WithTimeBudget 为本次请求设置 failover 总时间预算（从调用时刻开始计时）；budget<=0 不限制。
+func (s *FailoverState) WithTimeBudget(budget time.Duration) *FailoverState {
+	if s == nil {
+		return s
+	}
+	s.startedAt = time.Now()
+	s.timeBudget = budget
+	return s
+}
+
+// TimeBudgetExceeded 报告 failover 总时间预算是否已用尽。
+func (s *FailoverState) TimeBudgetExceeded() bool {
+	return s != nil && failoverTimeBudgetExceeded(s.startedAt, s.timeBudget)
 }
 
 // NewFailoverState 创建 failover 状态
@@ -205,6 +239,17 @@ func (s *FailoverState) HandleFailoverError(
 	}
 	s.LastFailoverErr = failoverErr
 	if failoverErr == nil || !failoverErr.ShouldRetryNextAccount() {
+		return FailoverExhausted
+	}
+	if s.TimeBudgetExceeded() {
+		logger.FromContext(ctx).Warn("gateway.failover_time_budget_exhausted",
+			zap.Int64("account_id", accountID),
+			zap.Int("upstream_status", failoverErr.StatusCode),
+			zap.Int("switch_count", s.SwitchCount),
+			zap.Duration("elapsed", time.Since(s.startedAt)),
+			zap.Duration("budget", s.timeBudget),
+		)
+		s.FailedAccountIDs[accountID] = struct{}{}
 		return FailoverExhausted
 	}
 
@@ -278,6 +323,10 @@ func (s *FailoverState) HandleSelectionExhausted(ctx context.Context) FailoverAc
 	// 不代表账号耗尽，直接按取消终止。
 	if ctx.Err() != nil {
 		return FailoverCanceled
+	}
+
+	if s.TimeBudgetExceeded() {
+		return FailoverExhausted
 	}
 
 	if s.LastFailoverErr != nil &&
