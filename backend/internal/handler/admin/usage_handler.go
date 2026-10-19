@@ -188,6 +188,11 @@ func (h *UsageHandler) List(c *gin.Context) {
 		SortBy:    c.DefaultQuery("sort_by", "created_at"),
 		SortOrder: c.DefaultQuery("sort_order", "desc"),
 	}
+	if usagestats.IsDerivedUsageLogSort(params.SortBy) && startTime == nil && requestID == "" {
+		// 按 TPS / 缓存命中率排序是表达式排序，不能走索引；必须限定时间范围以免全表扫描。
+		response.BadRequest(c, "sort_by "+params.SortBy+" requires start_date")
+		return
+	}
 	filters := usagestats.UsageLogFilters{
 		UserID:                userID,
 		APIKeyID:              apiKeyID,

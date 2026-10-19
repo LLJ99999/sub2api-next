@@ -228,17 +228,28 @@ func usageLogOrderBy(params pagination.PaginationParams) string {
 	sortOrder := strings.ToUpper(params.NormalizedSortOrder(pagination.SortOrderDesc))
 
 	var column string
+	nullsLast := false
 	switch sortBy {
 	case "model":
 		column = "COALESCE(NULLIF(TRIM(requested_model), ''), model)"
 	case "created_at":
 		column = "created_at"
+	case usagestats.UsageLogSortOutputTPS:
+		column = usageLogOutputTPSSQL("")
+		nullsLast = true
+	case usagestats.UsageLogSortCacheHitRate:
+		column = usageLogCacheHitRateSQL("")
+		nullsLast = true
 	default:
 		column = "id"
 	}
 
 	if column == "id" {
 		return fmt.Sprintf("id %s", sortOrder)
+	}
+	if nullsLast {
+		// 派生指标对不适用的记录为 NULL；无论升降序都排在最后，避免一页全是占位符。
+		return fmt.Sprintf("%s %s NULLS LAST, id %s", column, sortOrder, sortOrder)
 	}
 	return fmt.Sprintf("%s %s, id %s", column, sortOrder, sortOrder)
 }
