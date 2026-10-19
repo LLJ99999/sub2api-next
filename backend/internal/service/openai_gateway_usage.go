@@ -161,6 +161,10 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if result == nil {
 		return errors.New("openai usage result is nil")
 	}
+	if s.rateLimitService != nil {
+		// 成功响应自愈：清除 API Key 账号残留的限流/临时停调/模型级冷却，关闭上游中转站熔断。
+		s.rateLimitService.ObserveUpstreamSuccess(ctx, input.Account, result.Model, result.UpstreamModel)
+	}
 	if result.RegionalMetered {
 		return nil
 	}

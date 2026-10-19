@@ -2947,6 +2947,40 @@ func (r *accountRepository) ClearModelRateLimits(ctx context.Context, id int64) 
 	return nil
 }
 
+var _ service.AccountModelRateLimitScopeClearer = (*accountRepository)(nil)
+
+// ClearModelRateLimitScope removes a single model-scoped cooldown entry
+// (extra.model_rate_limits[scope]) and leaves the other models untouched.
+// It is a no-op (and does not touch the scheduler) when the entry is absent.
+func (r *accountRepository) ClearModelRateLimitScope(ctx context.Context, id int64, scope string) error {
+	if strings.TrimSpace(scope) == "" {
+		return nil
+	}
+	client := clientFromContext(ctx, r.client)
+	result, err := client.ExecContext(
+		ctx,
+		`UPDATE accounts SET extra = extra #- ARRAY['model_rate_limits', $1]::text[], updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL AND extra->'model_rate_limits' ? $1`,
+		scope,
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return nil
+	}
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
+		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue clear model rate limit scope failed: account=%d err=%v", id, err)
+	}
+	r.syncSchedulerAccountSnapshot(ctx, id)
+	return nil
+}
+
 func (r *accountRepository) UpdateSessionWindow(ctx context.Context, id int64, start, end *time.Time, status string) error {
 	builder := r.client.Account.Update().
 		Where(dbaccount.IDEQ(id)).

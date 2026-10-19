@@ -654,6 +654,10 @@ func writeUsageLogBestEffort(ctx context.Context, repo UsageLogRepository, usage
 
 // RecordUsage 记录使用量并扣费（或更新订阅用量）
 func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInput) error {
+	if s.rateLimitService != nil && input != nil && input.Result != nil {
+		// 成功响应自愈：清除 API Key 账号残留的限流/临时停调/模型级冷却，关闭上游中转站熔断。
+		s.rateLimitService.ObserveUpstreamSuccess(ctx, input.Account, input.Result.Model, input.Result.UpstreamModel)
+	}
 	return s.recordUsageCore(ctx, &recordUsageCoreInput{
 		Result:             input.Result,
 		APIKey:             input.APIKey,
