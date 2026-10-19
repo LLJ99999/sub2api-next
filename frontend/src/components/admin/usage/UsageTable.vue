@@ -266,6 +266,28 @@
           </component>
         </template>
 
+        <!-- 独立列：便于按 TPS / 缓存命中率做服务端排序 -->
+        <template #cell-output_tps="{ row }">
+          <span
+            v-if="formatUsageOutputTps(row)"
+            data-testid="column-output-tps"
+            class="text-sm font-medium tabular-nums"
+            :class="LATENCY_TEXT_CLASSES[tpsSeverity(usageOutputTps(row) ?? 0)]"
+            :title="t('usage.latencyTpsHint')"
+          >{{ formatUsageOutputTps(row) }}</span>
+          <span v-else data-testid="column-output-tps" class="text-sm text-gray-400 dark:text-gray-500">-</span>
+        </template>
+
+        <template #cell-cache_hit_rate="{ row }">
+          <span
+            v-if="showCacheRate && formatUsageCacheRate(row)"
+            data-testid="column-cache-hit-rate"
+            class="text-sm font-medium tabular-nums text-emerald-600 dark:text-emerald-400"
+            :title="cacheRateTitle(row)"
+          >{{ formatUsageCacheRate(row) }}</span>
+          <span v-else data-testid="column-cache-hit-rate" class="text-sm text-gray-400 dark:text-gray-500">-</span>
+        </template>
+
         <template #cell-created_at="{ value }">
           <span class="text-sm text-gray-600 dark:text-gray-400">{{ formatDateTime(value) }}</span>
         </template>
@@ -637,7 +659,8 @@ const { width: viewportWidth } = useWindowSize()
 const isMobile = computed(() => viewportWidth.value < 768)
 const appStore = useAppStore()
 const copiedRequestId = ref<string | null>(null)
-const showAccountBilling = props.showAccountBilling
+// 必须是响应式的：管理端「上游成本」开关切换时立即隐藏 A $ 行与提示中的账号计费段。
+const showAccountBilling = computed(() => props.showAccountBilling)
 const showUpstreamEndpoint = props.showUpstreamEndpoint
 const ipGeoBatchLoading = ref(false)
 

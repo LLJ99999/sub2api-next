@@ -35,6 +35,7 @@ import {
 import { Line } from 'vue-chartjs'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import type { TrendDataPoint } from '@/types'
+import { cacheHitRateFromTokens } from '@/utils/usageCacheRate'
 
 ChartJS.register(
   CategoryScale,
@@ -109,8 +110,8 @@ const chartData = computed(() => {
       {
         label: 'Cache Hit Rate',
         data: props.trendData.map((d) => {
-          const totalPromptTokens = d.input_tokens + d.cache_read_tokens + d.cache_creation_tokens
-          return totalPromptTokens > 0 ? (d.cache_read_tokens / totalPromptTokens) * 100 : 0
+          const rate = cacheHitRateFromTokens(d.input_tokens, d.cache_read_tokens, d.cache_creation_tokens)
+          return rate == null ? 0 : rate * 100
         }),
         borderColor: chartColors.value.cacheHitRate,
         backgroundColor: `${chartColors.value.cacheHitRate}20`,

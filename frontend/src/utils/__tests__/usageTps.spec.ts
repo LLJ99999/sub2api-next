@@ -1,33 +1,40 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatUsageOutputTps, usageOutputTps } from '../usageTps'
+import { USAGE_TPS_MIN_OUTPUT_TOKENS, formatUsageOutputTps, usageOutputTps } from '../usageTps'
 
 describe('usageTps', () => {
-  it('averages all output tokens over the full recorded duration', () => {
-    expect(usageOutputTps({ output_tokens: 872, duration_ms: 31_260, first_token_ms: 2_910 })).toBeCloseTo(27.895, 3)
-    expect(formatUsageOutputTps({ output_tokens: 872, duration_ms: 31_260, first_token_ms: 2_910 })).toBe('27.9 t/s')
+  it('divides output tokens by the generation window after the first token', () => {
+    const row = { output_tokens: 872, duration_ms: 31_260, first_token_ms: 2_910 }
+    expect(usageOutputTps(row)).toBeCloseTo(872 / 28.35, 6)
+    expect(formatUsageOutputTps(row)).toBe('30.8 t/s')
   })
 
-  it.each([0, 1_000, 9_999, 10_000, 10_001, null, undefined])(
-    'uses the same average with first_token_ms=%s, including missing and terminal-only output',
-    (firstTokenMs) => {
-      const row = { output_tokens: 500, duration_ms: 10_000, first_token_ms: firstTokenMs }
-      expect(usageOutputTps(row)).toBe(50)
-      expect(formatUsageOutputTps(row)).toBe('50.0 t/s')
-    },
-  )
+  it.each([null, undefined])('uses the whole duration when first_token_ms is %s', (firstTokenMs) => {
+    const row = { output_tokens: 500, duration_ms: 10_000, first_token_ms: firstTokenMs }
+    expect(usageOutputTps(row)).toBe(50)
+    expect(formatUsageOutputTps(row)).toBe('50.0 t/s')
+  })
+
+  it('counts exactly the minimum output tokens and hides anything below', () => {
+    expect(usageOutputTps({ output_tokens: USAGE_TPS_MIN_OUTPUT_TOKENS, duration_ms: 2_000, first_token_ms: 1_000 })).toBe(20)
+    expect(usageOutputTps({ output_tokens: USAGE_TPS_MIN_OUTPUT_TOKENS - 1, duration_ms: 2_000, first_token_ms: 1_000 })).toBeNull()
+  })
 
   it.each([
+    // Generation window <= 0.
+    { output_tokens: 500, duration_ms: 10_000, first_token_ms: 10_000 },
+    { output_tokens: 500, duration_ms: 10_000, first_token_ms: 10_001 },
     // Synthetic records reproduce the reported 109500 and 73000 t/s spikes
-    // with 10ms and 1ms after the first token, respectively.
-    { output_tokens: 1_095, duration_ms: 9_250, first_token_ms: 9_240, expected: '118 t/s' },
-    { output_tokens: 73, duration_ms: 6_761, first_token_ms: 6_760, expected: '10.8 t/s' },
-  ])('does not amplify buffered output with a $duration_ms ms duration', ({ expected, ...row }) => {
-    expect(formatUsageOutputTps(row)).toBe(expected)
+    // from buffered output flushed 10ms and 1ms after the first token.
+    { output_tokens: 1_095, duration_ms: 9_250, first_token_ms: 9_240 },
+    { output_tokens: 73, duration_ms: 6_761, first_token_ms: 6_760 },
+  ])('hides TPS when the generation window is too short: %o', (row) => {
+    expect(usageOutputTps(row)).toBeNull()
+    expect(formatUsageOutputTps(row)).toBeNull()
   })
 
   it('rounds to an integer from 100 t/s upwards', () => {
-    expect(formatUsageOutputTps({ output_tokens: 3_000, duration_ms: 10_000, first_token_ms: 1_000 })).toBe('300 t/s')
+    expect(formatUsageOutputTps({ output_tokens: 2_700, duration_ms: 10_000, first_token_ms: 1_000 })).toBe('300 t/s')
     expect(formatUsageOutputTps({ output_tokens: 999, duration_ms: 10_000, first_token_ms: 0 })).toBe('99.9 t/s')
   })
 
@@ -46,9 +53,10 @@ describe('usageTps', () => {
     expect(formatUsageOutputTps(interrupted)).toBeNull()
   })
 
-  it.each([-1, NaN, Infinity, -Infinity])('rejects invalid output or duration %s', (invalid) => {
+  it.each([-1, NaN, Infinity, -Infinity])('rejects invalid output, duration or first token %s', (invalid) => {
     expect(usageOutputTps({ output_tokens: invalid, duration_ms: 10_000 })).toBeNull()
     expect(formatUsageOutputTps({ output_tokens: 500, duration_ms: invalid })).toBeNull()
+    expect(usageOutputTps({ output_tokens: 500, duration_ms: 10_000, first_token_ms: invalid })).toBeNull()
   })
 
   it('skips image and video requests', () => {

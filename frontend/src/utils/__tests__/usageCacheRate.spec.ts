@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatUsageCacheRate, showUsageCacheRate, usageCacheRate, usageCacheRateParts } from '../usageCacheRate'
+import { cacheHitRateFromTokens, formatUsageCacheRate, showUsageCacheRate, usageCacheRate, usageCacheRateParts } from '../usageCacheRate'
 
 describe('showUsageCacheRate', () => {
   it('shows the rate to admins by default and hides it from users', () => {
@@ -59,5 +59,18 @@ describe('usageCacheRate', () => {
   it('treats a missing bucket as zero and keeps a tiny positive rate visible', () => {
     expect(usageCacheRateParts({ cache_read_tokens: 1 })?.rate).toBe(1)
     expect(formatUsageCacheRate({ input_tokens: 10_000, cache_read_tokens: 1, cache_creation_tokens: 0 })).toBe('<0.1%')
+  })
+})
+
+describe('cacheHitRateFromTokens', () => {
+  it('uses the same exclusive-bucket formula for aggregated totals', () => {
+    // OpenAI prompt_tokens=10000 with cached_tokens=8000 is stored as input 2000 / read 8000.
+    expect(cacheHitRateFromTokens(2_000, 8_000, 0)).toBeCloseTo(0.8, 12)
+    expect(cacheHitRateFromTokens(100, 100, 100)).toBeCloseTo(1 / 3, 12)
+  })
+
+  it('returns null without prompt tokens', () => {
+    expect(cacheHitRateFromTokens(0, 0, 0)).toBeNull()
+    expect(cacheHitRateFromTokens(undefined, null, undefined)).toBeNull()
   })
 })

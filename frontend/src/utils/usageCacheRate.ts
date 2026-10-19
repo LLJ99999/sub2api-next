@@ -41,7 +41,14 @@ function bucket(value: number | null | undefined): number | null {
  * Stored usage logs keep three exclusive prompt buckets: input_tokens is the
  * uncached input, cache_read_tokens is the cache hit, and cache_creation_tokens
  * is the cache write. The rate is cache read ÷ (input + cache read + cache write),
- * the same definition used by channel monitor and the usage trend chart.
+ * the same definition used by channel monitor, the usage trend chart and the
+ * backend (usagestats.CacheHitRate / usage analytics SQL).
+ *
+ * Protocol normalization happens when the log is written, not here: Anthropic
+ * input_tokens already excludes cache tokens, while OpenAI prompt_tokens /
+ * input_tokens include cached_tokens (and Gemini promptTokenCount includes
+ * cachedContentTokenCount) — the gateway subtracts them before storing, so the
+ * same formula is correct for every protocol.
  *
  * Returns null when the request has no prompt tokens, so image-only or empty
  * records show a placeholder instead of a misleading 0%.
@@ -56,6 +63,22 @@ export function usageCacheRateParts(row: UsageCacheRateRow | null | undefined): 
   if (total <= 0) return null
   const rate = read / total
   return Number.isFinite(rate) ? { input, read, write, rate } : null
+}
+
+/**
+ * Aggregate cache rate over summed buckets (e.g. a trend bucket or an analytics
+ * row). Null when there are no prompt tokens.
+ */
+export function cacheHitRateFromTokens(
+  inputTokens: number | null | undefined,
+  cacheReadTokens: number | null | undefined,
+  cacheCreationTokens: number | null | undefined,
+): number | null {
+  return usageCacheRateParts({
+    input_tokens: inputTokens,
+    cache_read_tokens: cacheReadTokens,
+    cache_creation_tokens: cacheCreationTokens,
+  })?.rate ?? null
 }
 
 export function usageCacheRate(row: UsageCacheRateRow | null | undefined): number | null {

@@ -148,7 +148,7 @@ const baseImageRow = {
 }
 
 describe('admin UsageTable tooltip', () => {
-  it('shows output TPS in the latency cell using total duration', () => {
+  it('shows output TPS in the latency cell using the generation window', () => {
     const row = { ...baseImageRow, image_count: 0, billing_mode: 'token', output_tokens: 1000, duration_ms: 20_000, first_token_ms: 10_000 }
     const wrapper = mount(UsageTable, {
       props: {
@@ -158,7 +158,7 @@ describe('admin UsageTable tooltip', () => {
       },
       global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
     })
-    expect(wrapper.findAll('[data-testid="latency-tps"]').map(cell => cell.text())).toEqual(['50.0 t/s', '-', '-'])
+    expect(wrapper.findAll('[data-testid="latency-tps"]').map(cell => cell.text())).toEqual(['100 t/s', '-', '-'])
     expect(wrapper.text()).toContain('Avg TPS')
   })
 
@@ -982,33 +982,33 @@ describe('admin UsageTable latency TPS', () => {
   const barClasses = (wrapper: ReturnType<typeof mountLatency>, requestId: string) =>
     wrapper.find(`[data-row="${requestId}"] [data-testid="latency-bar"]`).classes()
 
-  it('shows average output throughput over the total duration for streaming rows', () => {
+  it('shows output throughput over the generation window for streaming rows', () => {
     const wrapper = mountLatency([
       { request_id: 'req-tps-stream', output_tokens: 872, duration_ms: 31_260, first_token_ms: 2_910 },
     ])
 
     expect(wrapper.text()).toContain('Avg TPS')
     const cell = tpsCell(wrapper, 'req-tps-stream')
-    expect(cell.text()).toBe('27.9 t/s')
+    expect(cell.text()).toBe('30.8 t/s')
     expect(cell.attributes('title')).toBe('usage.latencyTpsHint')
     expect(cell.classes()).toContain('text-emerald-600')
   })
 
   it('colors the TPS text and the bottom bar segment red below 10 t/s and yellow below 20 t/s', () => {
     const wrapper = mountLatency([
-      // first token 12s (warn), total 17s (good), 1.5 t/s (critical)
+      // first token 12s (warn), total 17s (good), 25 tokens / 5s = 5 t/s (critical)
       { request_id: 'req-tps-slow', output_tokens: 25, duration_ms: 17_000, first_token_ms: 12_000 },
-      // first token 2s (good), total 12s (good), 12.5 t/s (warn)
+      // first token 2s (good), total 12s (good), 150 tokens / 10s = 15 t/s (warn)
       { request_id: 'req-tps-mid', output_tokens: 150, duration_ms: 12_000, first_token_ms: 2_000 },
     ])
 
-    expect(tpsCell(wrapper, 'req-tps-slow').text()).toBe('1.5 t/s')
+    expect(tpsCell(wrapper, 'req-tps-slow').text()).toBe('5.0 t/s')
     expect(tpsCell(wrapper, 'req-tps-slow').classes()).toContain('text-red-600')
     expect(barClasses(wrapper, 'req-tps-slow')).toEqual(
       expect.arrayContaining(['from-amber-400', 'via-emerald-500', 'to-red-500']),
     )
 
-    expect(tpsCell(wrapper, 'req-tps-mid').text()).toBe('12.5 t/s')
+    expect(tpsCell(wrapper, 'req-tps-mid').text()).toBe('15.0 t/s')
     expect(tpsCell(wrapper, 'req-tps-mid').classes()).toContain('text-amber-600')
     expect(barClasses(wrapper, 'req-tps-mid')).toEqual(
       expect.arrayContaining(['from-emerald-500', 'via-emerald-500', 'to-amber-400']),
@@ -1031,7 +1031,7 @@ describe('admin UsageTable latency TPS', () => {
     )
   })
 
-  it('uses the same average and hint when first token is missing', () => {
+  it('uses the whole duration and the same hint when first token is missing', () => {
     const wrapper = mountLatency([
       { request_id: 'req-tps-sync', output_tokens: 500, duration_ms: 10_000, first_token_ms: null },
     ])
@@ -1041,19 +1041,18 @@ describe('admin UsageTable latency TPS', () => {
     expect(cell.attributes('title')).toBe('usage.latencyTpsHint')
   })
 
-  it('keeps buffered and terminal-only output averages and health colors meaningful', () => {
+  it('hides TPS for buffered output flushed right after the first token', () => {
     const wrapper = mountLatency([
       { request_id: 'req-tps-buffered', output_tokens: 1_095, duration_ms: 9_250, first_token_ms: 9_240 },
       { request_id: 'req-tps-terminal', output_tokens: 73, duration_ms: 6_761, first_token_ms: 6_760 },
       { request_id: 'req-tps-same-ms', output_tokens: 73, duration_ms: 6_760, first_token_ms: 6_760 },
     ])
 
-    expect(tpsCell(wrapper, 'req-tps-buffered').text()).toBe('118 t/s')
-    for (const requestId of ['req-tps-terminal', 'req-tps-same-ms']) {
-      expect(tpsCell(wrapper, requestId).text()).toBe('10.8 t/s')
-      expect(tpsCell(wrapper, requestId).attributes('title')).toBe('usage.latencyTpsHint')
-      expect(tpsCell(wrapper, requestId).classes()).toContain('text-amber-600')
-      expect(barClasses(wrapper, requestId)).toContain('to-amber-400')
+    for (const requestId of ['req-tps-buffered', 'req-tps-terminal', 'req-tps-same-ms']) {
+      expect(tpsCell(wrapper, requestId).text()).toBe('-')
+      expect(tpsCell(wrapper, requestId).attributes('title')).toBeUndefined()
+      // 无 TPS 时色条底段沿用总耗时档（<10s 为 good）。
+      expect(barClasses(wrapper, requestId)).toContain('to-emerald-500')
     }
   })
 
@@ -1124,5 +1123,76 @@ describe('admin UsageTable latency TPS', () => {
     const shown = mountLatency([cacheHitRow], { cacheRateAudience: 'user' })
     expect(shown.find('[data-testid="latency-cache-rate"]').text()).toBe('98.6%')
     appStoreMocks.cachedPublicSettings = undefined
+  })
+})
+
+describe('admin UsageTable explicit metric columns and upstream cost toggle', () => {
+  const MetricColumnsStub = {
+    props: ['data'],
+    template: `
+      <div>
+        <div v-for="row in data" :key="row.request_id" :data-row="row.request_id">
+          <slot name="cell-output_tps" :row="row" />
+          <slot name="cell-cache_hit_rate" :row="row" />
+          <slot name="cell-cost" :row="row" />
+        </div>
+      </div>
+    `,
+  }
+
+  const mountMetrics = (data: Record<string, unknown>[], extra: Record<string, unknown> = {}) =>
+    mount(UsageTable, {
+      props: {
+        data: data as any,
+        loading: false,
+        columns: [
+          { key: 'output_tps', label: 'TPS', sortable: true },
+          { key: 'cache_hit_rate', label: 'Cache', sortable: true },
+          { key: 'cost', label: 'Cost' },
+        ],
+        ...extra,
+      },
+      global: { stubs: { DataTable: MetricColumnsStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+
+  const row = {
+    ...baseImageRow,
+    request_id: 'req-metric',
+    billing_mode: 'token',
+    image_count: 0,
+    input_tokens: 2_000,
+    cache_read_tokens: 8_000,
+    cache_creation_tokens: 0,
+    output_tokens: 600,
+    duration_ms: 12_000,
+    first_token_ms: 2_000,
+    actual_cost: 1,
+    total_cost: 2,
+    account_rate_multiplier: 0.5,
+  }
+
+  it('renders TPS and cache hit rate as standalone cells', () => {
+    appStoreMocks.cachedPublicSettings = undefined
+    const wrapper = mountMetrics([row, { ...row, request_id: 'req-short', output_tokens: 10, input_tokens: 0, cache_read_tokens: 0 }])
+    expect(wrapper.find('[data-row="req-metric"] [data-testid="column-output-tps"]').text()).toBe('60.0 t/s')
+    expect(wrapper.find('[data-row="req-metric"] [data-testid="column-cache-hit-rate"]').text()).toBe('80.0%')
+    expect(wrapper.find('[data-row="req-short"] [data-testid="column-output-tps"]').text()).toBe('-')
+    expect(wrapper.find('[data-row="req-short"] [data-testid="column-cache-hit-rate"]').text()).toBe('-')
+  })
+
+  it('hides the cache hit rate column value when the feature switch is off', () => {
+    appStoreMocks.cachedPublicSettings = { usage_show_cache_rate: false }
+    const wrapper = mountMetrics([row])
+    expect(wrapper.find('[data-testid="column-cache-hit-rate"]').text()).toBe('-')
+    appStoreMocks.cachedPublicSettings = undefined
+  })
+
+  it('reactively hides the upstream cost line when showAccountBilling turns off', async () => {
+    const wrapper = mountMetrics([row])
+    expect(wrapper.text()).toContain('A $1.000000')
+    await wrapper.setProps({ showAccountBilling: false })
+    expect(wrapper.text()).not.toContain('A $')
+    await wrapper.setProps({ showAccountBilling: true })
+    expect(wrapper.text()).toContain('A $1.000000')
   })
 })

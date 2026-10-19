@@ -79,7 +79,7 @@ export default {
   "parent": "Parent egress",
   "success": "Forward succeeded",
   "client_disconnected": "Client disconnected",
-  "tpsNote": "Average TPS = output tokens ÷ total recorded duration (seconds). Includes waiting time and any reasoning tokens reported in output usage. The first-token latency is not subtracted; this is not a measurement of model generation speed.",
+  "tpsNote": "TPS = output tokens ÷ ((total duration − first-token latency) seconds), i.e. generation-phase throughput. Uses the whole duration when no first-token time was recorded. Hidden below 20 output tokens or when the generation window is under 100ms (buffered output). Reasoning tokens reported in output usage are included.",
   "health": {
     "good": "Normal",
     "warn": "Watch",
