@@ -1299,6 +1299,11 @@ type GatewayConfig struct {
 	MaxAccountSwitches int `mapstructure:"max_account_switches"`
 	// Gemini 账户切换最大次数（Gemini 平台单独配置，因 API 限制更严格）
 	MaxAccountSwitchesGemini int `mapstructure:"max_account_switches_gemini"`
+	// FailoverTimeBudgetSeconds 单次请求 failover（换号）总时间预算（秒），0 表示不限制。
+	// 超出后不再切换账号，直接返回最后一次上游错误。
+	FailoverTimeBudgetSeconds int `mapstructure:"failover_time_budget_seconds"`
+	// CooldownFallback 全部候选账号仅因冷却不可用时的兜底探测
+	CooldownFallback GatewayCooldownFallbackConfig `mapstructure:"cooldown_fallback"`
 
 	// Antigravity 429 fallback 限流时间（分钟），解析重置时间失败时使用
 	AntigravityFallbackCooldownMinutes int `mapstructure:"antigravity_fallback_cooldown_minutes"`
@@ -1930,6 +1935,36 @@ type DefaultConfig struct {
 type RateLimitConfig struct {
 	OverloadCooldownMinutes int `mapstructure:"overload_cooldown_minutes"`  // 529过载冷却时间(分钟)
 	OAuth401CooldownMinutes int `mapstructure:"oauth_401_cooldown_minutes"` // OAuth 401临时不可调度冷却(分钟)
+	// PaymentRequired402CooldownMinutes 上游返回 402（余额不足/计费问题）时的可恢复
+	// 临时停调时长（分钟）。OpenAI deactivated_workspace 仍永久标记 error。
+	PaymentRequired402CooldownMinutes int `mapstructure:"payment_required_402_cooldown_minutes"`
+	// UpstreamRelay 上游中转站熔断策略（账号 extra.upstream_relay_policy=true 时生效）
+	UpstreamRelay UpstreamRelayBreakerConfig `mapstructure:"upstream_relay"`
+}
+
+// GatewayCooldownFallbackConfig 全冷却兜底：当分组内 API Key 账号仅因限流/临时停调/熔断
+// 冷却而全部不可调度时，挑选最早恢复的账号放行一次探测请求，而不是直接返回 503。
+type GatewayCooldownFallbackConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+	// ProbeIntervalSeconds 同一分组/平台/模型两次兜底探测之间的最小间隔（秒，跨实例 Redis 锁）
+	ProbeIntervalSeconds int `mapstructure:"probe_interval_seconds"`
+}
+
+// UpstreamRelayBreakerConfig 上游中转站（API Key 指向其他中转/NewAPI/Sub2API）熔断参数。
+// 仅对显式开启 upstream_relay_policy 的账号生效。
+type UpstreamRelayBreakerConfig struct {
+	// WindowSeconds 失败率统计滑动窗口（秒），跨实例共享（Redis）
+	WindowSeconds int `mapstructure:"window_seconds"`
+	// MinFailures 窗口内触发熔断所需的最少失败次数
+	MinFailures int `mapstructure:"min_failures"`
+	// FailureRatePercent 窗口内失败率阈值（百分比，1-100）
+	FailureRatePercent int `mapstructure:"failure_rate_percent"`
+	// MaxCooldownSeconds 指数退避冷却上限（秒）
+	MaxCooldownSeconds int `mapstructure:"max_cooldown_seconds"`
+	// LevelResetSeconds 退避级别在无新熔断时的保留时长（秒），过期后从第一级重新开始
+	LevelResetSeconds int `mapstructure:"level_reset_seconds"`
+	// Scope 冷却粒度：model（默认，仅冷却出错模型）或 account
+	Scope string `mapstructure:"scope"`
 }
 
 // APIKeyAuthCacheConfig API Key 认证缓存配置
@@ -2584,6 +2619,13 @@ func setDefaults() {
 	// RateLimit
 	viper.SetDefault("rate_limit.overload_cooldown_minutes", 10)
 	viper.SetDefault("rate_limit.oauth_401_cooldown_minutes", 10)
+	viper.SetDefault("rate_limit.payment_required_402_cooldown_minutes", 30)
+	viper.SetDefault("rate_limit.upstream_relay.window_seconds", 60)
+	viper.SetDefault("rate_limit.upstream_relay.min_failures", 5)
+	viper.SetDefault("rate_limit.upstream_relay.failure_rate_percent", 50)
+	viper.SetDefault("rate_limit.upstream_relay.max_cooldown_seconds", 600)
+	viper.SetDefault("rate_limit.upstream_relay.level_reset_seconds", 1800)
+	viper.SetDefault("rate_limit.upstream_relay.scope", "model")
 
 	// Pricing - 从 model-price-repo main 分支同步模型定价和上下文窗口数据
 	viper.SetDefault("pricing.remote_url", "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/main/model_prices_and_context_window.json")
@@ -2674,6 +2716,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.failover_on_400", false)
 	viper.SetDefault("gateway.max_account_switches", 10)
 	viper.SetDefault("gateway.max_account_switches_gemini", 3)
+	viper.SetDefault("gateway.failover_time_budget_seconds", 0)
+	viper.SetDefault("gateway.cooldown_fallback.enabled", true)
+	viper.SetDefault("gateway.cooldown_fallback.probe_interval_seconds", 10)
 	viper.SetDefault("gateway.api_key_queue.max_waiting", defaultAPIKeyQueueMaxWaiting)
 	viper.SetDefault("gateway.api_key_queue.timeout_seconds", defaultAPIKeyQueueTimeoutSeconds)
 	viper.SetDefault("gateway.force_codex_cli", false)
