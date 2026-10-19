@@ -461,3 +461,30 @@ func (s *UsageService) GetStatsWithFilters(ctx context.Context, filters usagesta
 	}
 	return stats, nil
 }
+
+// GetUsageAnalytics 按上游账号 / 分组 / 模型聚合用量、延迟分位数、收入、上游成本与毛利。
+func (s *UsageService) GetUsageAnalytics(ctx context.Context, filters usagestats.UsageAnalyticsFilters) (*usagestats.UsageAnalyticsResult, error) {
+	dimension, ok := usagestats.NormalizeUsageAnalyticsDimension(filters.Dimension)
+	if !ok {
+		return nil, infraerrors.BadRequest("USAGE_ANALYTICS_INVALID_DIMENSION", "dimension must be one of account, group, model")
+	}
+	filters.Dimension = dimension
+	if filters.StartTime.IsZero() || filters.EndTime.IsZero() || !filters.EndTime.After(filters.StartTime) {
+		return nil, infraerrors.BadRequest("USAGE_ANALYTICS_INVALID_RANGE", "start_date and end_date are required and end must be after start")
+	}
+	if filters.EndTime.Sub(filters.StartTime) > usagestats.UsageAnalyticsMaxRange {
+		return nil, infraerrors.BadRequest("USAGE_ANALYTICS_RANGE_TOO_LARGE", "usage analytics range must not exceed 93 days")
+	}
+	type usageAnalyticsRepo interface {
+		GetUsageAnalytics(ctx context.Context, filters usagestats.UsageAnalyticsFilters) (*usagestats.UsageAnalyticsResult, error)
+	}
+	repo, ok := s.usageRepo.(usageAnalyticsRepo)
+	if !ok {
+		return nil, infraerrors.ServiceUnavailable("USAGE_ANALYTICS_UNSUPPORTED", "usage analytics is not supported by the current repository")
+	}
+	result, err := repo.GetUsageAnalytics(ctx, filters)
+	if err != nil {
+		return nil, fmt.Errorf("get usage analytics: %w", err)
+	}
+	return result, nil
+}
