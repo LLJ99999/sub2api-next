@@ -319,6 +319,9 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 			s.tryTempUnschedulable(ctx, account, statusCode, responseBody) {
 			return ErrorPolicyTempUnscheduled
 		}
+		if statusCode == http.StatusPaymentRequired && s.handlePoolMode402(ctx, account, responseBody) {
+			return ErrorPolicyTempUnscheduled
+		}
 		return ErrorPolicySkipped
 	}
 	// The global overload cooldown is the default for ordinary accounts. Explicit
@@ -369,6 +372,10 @@ func (s *RateLimitService) handleUpstreamErrorAfterStreakReset(ctx context.Conte
 	if account.IsPoolMode() && !customErrorCodesEnabled {
 		if tempUnschedRulesApply(account, statusCode, responseBody, tempUnschedulableModel(ctx, nil)) &&
 			s.tryTempUnschedulable(ctx, account, statusCode, responseBody) {
+			return true
+		}
+		// 402（余额耗尽）即使在池模式下也必须冷却：否则余额为零的上游会被反复选中。
+		if statusCode == http.StatusPaymentRequired && s.handlePoolMode402(ctx, account, responseBody) {
 			return true
 		}
 		slog.Info("pool_mode_error_skipped", "account_id", account.ID, "status_code", statusCode)
@@ -575,26 +582,16 @@ func (s *RateLimitService) handleUpstreamErrorAfterStreakReset(ctx context.Conte
 			shouldDisable = true
 		}
 	case 402:
-		// 国产供应商 / OpenCode Zen / Command Code：余额（积分）不足是可恢复状态
-		// （充值/检测恢复后由周期任务自动解除），不能走 handleAuthError 永久置
-		// status=error。改为可恢复的临时停调。
-		if account.IsCNProvider() || account.IsOpenCodeZen() || account.IsCommandCode() {
-			s.handleCNProviderInsufficientBalance(ctx, account, upstreamMsg)
+		// 402 默认是可恢复状态（余额不足/计费问题，充值后可恢复）：
+		//   - 国产供应商 / OpenCode Zen / Command Code：沿用余额检测周期冷却；
+		//   - 其余账号：可恢复的临时停调（rate_limit.payment_required_402_cooldown_minutes，默认 30 分钟），
+		//     余额探测发现余额为正时提前解除。
+		// 仅 OpenAI deactivated_workspace（工作区已停用）保持永久 error。
+		if s.handleRecoverable402(ctx, account, responseBody, upstreamMsg) {
 			shouldDisable = true
 			break
 		}
-		// OpenAI: deactivated_workspace 表示工作区已停用，直接标记 error
-		if account.Platform == PlatformOpenAI && gjson.GetBytes(responseBody, "detail.code").String() == "deactivated_workspace" {
-			msg := "Workspace deactivated (402): workspace has been deactivated"
-			s.handleAuthError(ctx, account, msg)
-			shouldDisable = true
-			break
-		}
-		// 支付要求：余额不足或计费问题，停止调度
-		msg := "Payment required (402): insufficient balance or billing issue"
-		if upstreamMsg != "" {
-			msg = "Payment required (402): " + upstreamMsg
-		}
+		msg := "Workspace deactivated (402): workspace has been deactivated"
 		s.handleAuthError(ctx, account, msg)
 		shouldDisable = true
 	case 403:

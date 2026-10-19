@@ -308,7 +308,7 @@ func (s *RateLimitService) observeAccountOps(ctx context.Context, account *Accou
 }
 
 func accountOpsSignalLabel(signal string) string {
-	labels := map[string]string{"balance_error_code": "明确的余额错误码", "balance_error_message": "明确的余额不足提示", "weekly_error_code": "明确的周额度错误码", "weekly_error_message": "明确的周限提示", "codex_weekly_header": "Codex 七天用量窗口已耗尽", "anthropic_weekly_header": "Anthropic 七天用量窗口已耗尽"}
+	labels := map[string]string{"balance_error_code": "明确的余额错误码", "balance_error_message": "明确的余额不足提示", "weekly_error_code": "明确的周额度错误码", "weekly_error_message": "明确的周限提示", "codex_weekly_header": "Codex 七天用量窗口已耗尽", "anthropic_weekly_header": "Anthropic 七天用量窗口已耗尽", "payment_required_402": "上游返回 HTTP 402（余额耗尽/需付费）"}
 	if label, ok := labels[signal]; ok {
 		return label
 	}

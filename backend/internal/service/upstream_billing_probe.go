@@ -522,7 +522,11 @@ func (s *UpstreamBillingProbeService) probeAccountWithMode(ctx context.Context, 
 				return nil, nil
 			}
 		}
-		return s.probeLoadedAccount(ctx, account, intervalMinutes)
+		snapshot, probeErr := s.probeLoadedAccount(ctx, account, intervalMinutes)
+		if probeErr == nil {
+			s.clearPaymentRequired402CooldownIfRecovered(ctx, account, snapshot)
+		}
+		return snapshot, probeErr
 	})
 	if err != nil {
 		return nil, err

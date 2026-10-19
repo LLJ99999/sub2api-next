@@ -119,10 +119,13 @@ func TestTeamLinkedError_GenericPaymentErrorDoesNotFanout(t *testing.T) {
 	rl, _ := newTeamLinkedTestService(repo)
 	trigger := newTeamLinkedAccount(1, "team-A")
 
-	rl.HandleUpstreamError(context.Background(), &trigger, http.StatusPaymentRequired, http.Header{}, []byte(`{"error":{"message":"insufficient balance"}}`))
+	shouldDisable := rl.HandleUpstreamError(context.Background(), &trigger, http.StatusPaymentRequired, http.Header{}, []byte(`{"error":{"message":"insufficient balance"}}`))
 
-	require.Equal(t, []int64{1}, repo.setErrorIDs)
-	require.Contains(t, repo.setErrorMsgs[1], "Payment required (402)")
+	// 普通 402 是可恢复的临时停调，不再永久置 error，也不触发同队联动。
+	require.True(t, shouldDisable)
+	require.Empty(t, repo.setErrorIDs)
+	require.NotNil(t, trigger.TempUnschedulableUntil)
+	require.Contains(t, trigger.TempUnschedulableReason, PaymentRequired402ReasonKeyword)
 	require.Zero(t, repo.listCalls)
 }
 
