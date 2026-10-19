@@ -42,6 +42,13 @@ type RateLimitService struct {
 	usageCacheMu          sync.RWMutex
 	usageCache            map[int64]*geminiUsageCacheEntry
 
+	// 上游中转站熔断：未接入共享 Redis 时的进程内回退存储
+	localRelayOnce  sync.Once
+	localRelayStore UpstreamRelayBreakerStore
+	// 全冷却兜底探测锁：未接入共享 Redis 时的进程内回退
+	localFallbackOnce   sync.Once
+	localFallbackLocker CooldownFallbackProbeLocker
+
 	// OpenAI Team 联动熔断的进程内去重：teamID → 去重窗口截止时间
 	openaiTeamLinkedMu     sync.Mutex
 	openaiTeamLinkedRecent map[string]time.Time
@@ -322,11 +329,16 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 		if statusCode == http.StatusPaymentRequired && s.handlePoolMode402(ctx, account, responseBody) {
 			return ErrorPolicyTempUnscheduled
 		}
+		if account.IsUpstreamRelayPolicyEnabled() && isUpstreamRelayBreakerStatus(statusCode) &&
+			s.observeUpstreamRelayFailure(ctx, account, statusCode, relayBreakerUpstreamMessage(responseBody), tempUnschedulableModel(ctx, requestedModel)) {
+			return ErrorPolicyTempUnscheduled
+		}
 		return ErrorPolicySkipped
 	}
 	// The global overload cooldown is the default for ordinary accounts. Explicit
-	// account policies above retain precedence over this fallback.
-	if statusCode == 529 {
+	// account policies above retain precedence over this fallback. Accounts on
+	// the upstream relay policy leave 529 to the breaker in HandleUpstreamError.
+	if statusCode == 529 && !account.IsUpstreamRelayPolicyEnabled() {
 		return ErrorPolicyMatched
 	}
 	if s.tryTempUnschedulable(ctx, account, statusCode, responseBody, firstRequestedModel(requestedModel)) {
@@ -378,6 +390,10 @@ func (s *RateLimitService) handleUpstreamErrorAfterStreakReset(ctx context.Conte
 		if statusCode == http.StatusPaymentRequired && s.handlePoolMode402(ctx, account, responseBody) {
 			return true
 		}
+		// 显式开启上游中转站熔断的池模式账号：429/5xx 进入滑动窗口熔断。
+		if account.IsUpstreamRelayPolicyEnabled() && isUpstreamRelayBreakerStatus(statusCode) {
+			return s.observeUpstreamRelayFailure(ctx, account, statusCode, relayBreakerUpstreamMessage(responseBody), tempUnschedulableModel(ctx, requestedModel))
+		}
 		slog.Info("pool_mode_error_skipped", "account_id", account.ID, "status_code", statusCode)
 		return false
 	}
@@ -387,6 +403,17 @@ func (s *RateLimitService) handleUpstreamErrorAfterStreakReset(ctx context.Conte
 	if !account.ShouldHandleErrorCode(statusCode) {
 		slog.Info("account_error_code_skipped", "account_id", account.ID, "status_code", statusCode)
 		return false
+	}
+
+	// 上游中转站熔断策略（账号显式开启）：429/5xx 不再“一次错误即冷却”，而是进入
+	// 跨实例滑动窗口统计，达到失败率阈值后才按指数退避冷却（默认模型级），并忽略
+	// 上游给出的长重置时间。管理员配置的临时不可调度规则与自定义错误码仍优先。
+	if !customErrorCodesEnabled && account.IsUpstreamRelayPolicyEnabled() && isUpstreamRelayBreakerStatus(statusCode) {
+		if tempUnschedRulesApply(account, statusCode, responseBody, tempUnschedulableModel(ctx, requestedModel)) &&
+			s.tryTempUnschedulable(ctx, account, statusCode, responseBody, firstRequestedModel(requestedModel)) {
+			return true
+		}
+		return s.observeUpstreamRelayFailure(ctx, account, statusCode, relayBreakerUpstreamMessage(responseBody), tempUnschedulableModel(ctx, requestedModel))
 	}
 
 	if statusCode == 529 {
@@ -2953,6 +2980,10 @@ func truncateTempUnschedMessage(body []byte, maxBytes int) string {
 func (s *RateLimitService) HandleStreamTimeout(ctx context.Context, account *Account, model string) bool {
 	if account == nil {
 		return false
+	}
+	// 上游中转站熔断账号：超时计入滑动窗口，由熔断决定是否冷却。
+	if account.IsUpstreamRelayPolicyEnabled() {
+		return s.observeUpstreamRelayFailure(ctx, account, http.StatusGatewayTimeout, "stream data interval timeout", model)
 	}
 
 	// 获取系统设置

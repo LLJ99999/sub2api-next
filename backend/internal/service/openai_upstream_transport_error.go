@@ -165,6 +165,9 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 
 	if classifyUpstreamTransportError(err).Persistent {
 		s.tempUnscheduleOpenAITransportError(ctx, account, safeErr)
+	} else if s != nil && s.rateLimitService != nil {
+		// 上游中转站熔断账号：瞬时传输错误（超时/连接重置）计入熔断窗口。
+		s.rateLimitService.ObserveUpstreamRelayTransportFailure(ctx, account, safeErr)
 	}
 
 	return &UpstreamFailoverError{

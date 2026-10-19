@@ -141,3 +141,116 @@ func (c *tempUnschedCache) RecordOpenAIAPIKeyHealthFailure(ctx context.Context, 
 	}
 	return count, tripped == 1, nil
 }
+
+// ---------------------------------------------------------------------------
+// Upstream relay circuit breaker (service.UpstreamRelayBreakerStore) and the
+// all-cooled fallback probe lock (service.CooldownFallbackProbeLocker).
+// Both are optional TempUnschedCache extensions discovered by type assertion.
+// ---------------------------------------------------------------------------
+
+var (
+	_ service.UpstreamRelayBreakerStore   = (*tempUnschedCache)(nil)
+	_ service.CooldownFallbackProbeLocker = (*tempUnschedCache)(nil)
+)
+
+const (
+	upstreamRelayBreakerPrefix  = "upstream_relay:"
+	cooldownFallbackProbePrefix = "cooldown_fallback_probe:"
+)
+
+var upstreamRelayRecordScript = redis.NewScript(`
+	local now = redis.call('TIME')
+	local now_ms = (tonumber(now[1]) * 1000) + math.floor(tonumber(now[2]) / 1000)
+	local window_ms = tonumber(ARGV[2])
+	local level = tonumber(redis.call('HGET', KEYS[3], 'level') or '0')
+	local engaged = 0
+	if level > 0 then
+		engaged = 1
+	end
+	if ARGV[1] == '1' and engaged == 0 and redis.call('EXISTS', KEYS[1]) == 0 then
+		return {0, 0, 0}
+	end
+	redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now_ms - window_ms)
+	redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now_ms - window_ms)
+	local seq = redis.call('INCR', KEYS[4])
+	local member = tostring(now_ms) .. ':' .. tostring(seq)
+	local ttl = math.ceil(window_ms / 1000) + 60
+	if ARGV[1] ~= '1' then
+		redis.call('ZADD', KEYS[1], now_ms, member)
+		redis.call('EXPIRE', KEYS[1], ttl)
+	end
+	redis.call('ZADD', KEYS[2], now_ms, member)
+	redis.call('EXPIRE', KEYS[2], ttl)
+	redis.call('EXPIRE', KEYS[4], ttl)
+	return {redis.call('ZCARD', KEYS[1]), redis.call('ZCARD', KEYS[2]), engaged}
+`)
+
+var upstreamRelayTripScript = redis.NewScript(`
+	local now = redis.call('TIME')
+	local now_ms = (tonumber(now[1]) * 1000) + math.floor(tonumber(now[2]) / 1000)
+	local level = tonumber(redis.call('HGET', KEYS[3], 'level') or '0')
+	local last = tonumber(redis.call('HGET', KEYS[3], 'last_trip_ms') or '0')
+	if level == 0 or (now_ms - last) >= tonumber(ARGV[2]) then
+		level = level + 1
+		redis.call('HSET', KEYS[3], 'level', level, 'last_trip_ms', now_ms)
+	end
+	redis.call('EXPIRE', KEYS[3], tonumber(ARGV[1]))
+	redis.call('DEL', KEYS[1], KEYS[2])
+	return level
+`)
+
+// upstreamRelayKeys returns fail/all/state/seq keys sharing one hash tag so the
+// scripts stay within a single Redis Cluster slot.
+func upstreamRelayKeys(accountID int64, scope string) []string {
+	tag := fmt.Sprintf("%s{%d|%s}", upstreamRelayBreakerPrefix, accountID, scope)
+	return []string{tag + ":fail", tag + ":all", tag + ":state", tag + ":seq"}
+}
+
+func (c *tempUnschedCache) RecordUpstreamRelayOutcome(ctx context.Context, accountID int64, scope string, success bool, window time.Duration) (service.UpstreamRelayOutcome, error) {
+	windowMS := window.Milliseconds()
+	if windowMS < 1000 {
+		windowMS = 1000
+	}
+	flag := "0"
+	if success {
+		flag = "1"
+	}
+	res, err := upstreamRelayRecordScript.Run(ctx, c.rdb, upstreamRelayKeys(accountID, scope), flag, windowMS).Slice()
+	if err != nil {
+		return service.UpstreamRelayOutcome{}, fmt.Errorf("record upstream relay outcome: %w", err)
+	}
+	if len(res) != 3 {
+		return service.UpstreamRelayOutcome{}, fmt.Errorf("record upstream relay outcome: unexpected result length %d", len(res))
+	}
+	failures, ok1 := res[0].(int64)
+	total, ok2 := res[1].(int64)
+	engaged, ok3 := res[2].(int64)
+	if !ok1 || !ok2 || !ok3 {
+		return service.UpstreamRelayOutcome{}, fmt.Errorf("record upstream relay outcome: unexpected result types")
+	}
+	return service.UpstreamRelayOutcome{Failures: failures, Total: total, Engaged: engaged == 1}, nil
+}
+
+func (c *tempUnschedCache) TripUpstreamRelayBreaker(ctx context.Context, accountID int64, scope string, levelTTL time.Duration) (int, error) {
+	ttl := int64(levelTTL / time.Second)
+	if ttl < 60 {
+		ttl = 60
+	}
+	level, err := upstreamRelayTripScript.Run(ctx, c.rdb, upstreamRelayKeys(accountID, scope), ttl, int64(2000)).Int64()
+	if err != nil {
+		return 0, fmt.Errorf("trip upstream relay breaker: %w", err)
+	}
+	return int(level), nil
+}
+
+func (c *tempUnschedCache) CloseUpstreamRelayBreaker(ctx context.Context, accountID int64, scope string) error {
+	keys := upstreamRelayKeys(accountID, scope)
+	return c.rdb.Del(ctx, keys...).Err()
+}
+
+func (c *tempUnschedCache) TryAcquireCooldownFallbackProbe(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	if ttl < time.Second {
+		ttl = time.Second
+	}
+	return c.rdb.SetNX(ctx, cooldownFallbackProbePrefix+key, "1", ttl).Result()
+}
