@@ -98,6 +98,18 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 // metadataUserID: 用于客户端亲和调度，从中提取客户端 ID
 // sub2apiUserID: 系统用户 ID，用于二维亲和调度
 func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, sub2apiUserID int64) (*AccountSelectionResult, error) {
+	result, err := s.selectAccountWithLoadAwarenessCore(ctx, groupID, sessionHash, requestedModel, excludedIDs, metadataUserID, sub2apiUserID)
+	if err == nil || !shouldTryCooldownFallback(ctx, err) {
+		return result, err
+	}
+	// 全冷却兜底：候选账号仅因冷却全部不可用时，放行一次探测而不是直接 503。
+	if fallback := s.selectCooldownFallback(ctx, groupID, requestedModel, excludedIDs); fallback != nil {
+		return fallback, nil
+	}
+	return result, err
+}
+
+func (s *GatewayService) selectAccountWithLoadAwarenessCore(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, sub2apiUserID int64) (*AccountSelectionResult, error) {
 	// 调试日志：记录调度入口参数
 	excludedIDsList := make([]int64, 0, len(excludedIDs))
 	for id := range excludedIDs {
