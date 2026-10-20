@@ -163,10 +163,17 @@ func (r *channelMonitorV2Repository) RecomputeRange(ctx context.Context, start, 
 	return nil
 }
 
+// Cache-rate denominator only counts requests that actually read cache.
+// Zero-cache probe/distillation traffic would otherwise drag cache rate down.
+// input_tokens / cache_creation_tokens stay complete for Token/TPM.
+const channelMonitorV2CacheEligibleSelectSQL = `COALESCE(SUM(ul.input_tokens) FILTER (WHERE COALESCE(ul.cache_read_tokens, 0) > 0 AND ` + usageLogSuccessFilterUL + `), 0),
+       COALESCE(SUM(ul.cache_creation_tokens) FILTER (WHERE COALESCE(ul.cache_read_tokens, 0) > 0 AND ` + usageLogSuccessFilterUL + `), 0)`
+
 const channelMonitorV2UsageMetricsSQL = `
 INSERT INTO channel_monitor_v2_metrics_1m (
   bucket_start, platform, group_id, model, success_requests,
   input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
+  cache_eligible_input_tokens, cache_eligible_creation_tokens,
   ttft_sum_ms, ttft_count, duration_sum_ms, duration_count, computed_at
 )
 SELECT date_trunc('minute', ul.created_at), %s, COALESCE(ul.group_id, 0), %s,
@@ -176,6 +183,7 @@ SELECT date_trunc('minute', ul.created_at), %s, COALESCE(ul.group_id, 0), %s,
        COALESCE(SUM(ul.output_tokens) FILTER (WHERE ` + usageLogSuccessFilterUL + `), 0),
        COALESCE(SUM(ul.cache_creation_tokens) FILTER (WHERE ` + usageLogSuccessFilterUL + `), 0),
        COALESCE(SUM(ul.cache_read_tokens) FILTER (WHERE ` + usageLogSuccessFilterUL + `), 0),
+       ` + channelMonitorV2CacheEligibleSelectSQL + `,
        COALESCE(SUM(ul.first_token_ms) FILTER (WHERE ul.first_token_ms IS NOT NULL AND ` + usageLogSuccessFilterUL + `), 0),
        COUNT(ul.first_token_ms) FILTER (WHERE ` + usageLogSuccessFilterUL + `),
        COALESCE(SUM(ul.duration_ms) FILTER (WHERE ul.duration_ms IS NOT NULL AND ` + usageLogSuccessFilterUL + `), 0),
@@ -190,6 +198,7 @@ const channelMonitorV2UserMetricsSQL = `
 INSERT INTO channel_monitor_v2_user_metrics_1m (
   bucket_start, platform, group_id, model, user_id, success_requests,
   input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
+  cache_eligible_input_tokens, cache_eligible_creation_tokens,
   ttft_sum_ms, ttft_count, duration_sum_ms, duration_count, computed_at
 )
 SELECT date_trunc('minute', ul.created_at), %s, COALESCE(ul.group_id, 0), %s, ul.user_id,
@@ -199,6 +208,7 @@ SELECT date_trunc('minute', ul.created_at), %s, COALESCE(ul.group_id, 0), %s, ul
        COALESCE(SUM(ul.output_tokens) FILTER (WHERE ` + usageLogSuccessFilterUL + `), 0),
        COALESCE(SUM(ul.cache_creation_tokens) FILTER (WHERE ` + usageLogSuccessFilterUL + `), 0),
        COALESCE(SUM(ul.cache_read_tokens) FILTER (WHERE ` + usageLogSuccessFilterUL + `), 0),
+       ` + channelMonitorV2CacheEligibleSelectSQL + `,
        COALESCE(SUM(ul.first_token_ms) FILTER (WHERE ul.first_token_ms IS NOT NULL AND ` + usageLogSuccessFilterUL + `), 0),
        COUNT(ul.first_token_ms) FILTER (WHERE ` + usageLogSuccessFilterUL + `),
        COALESCE(SUM(ul.duration_ms) FILTER (WHERE ul.duration_ms IS NOT NULL AND ` + usageLogSuccessFilterUL + `), 0),
@@ -426,11 +436,16 @@ WHERE bucket_seconds = $2::integer
   AND bucket_start >= bounds.start_at
   AND bucket_start < bounds.end_at`
 
+// Legacy 1m rows (NULL eligible columns, written before migration 320) roll up
+// with the old full-input denominator so history does not jump to 100%.
+const channelMonitorV2CacheEligibleRollupSQL = `SUM(COALESCE(cache_eligible_input_tokens, input_tokens)), SUM(COALESCE(cache_eligible_creation_tokens, cache_creation_tokens))`
+
 const channelMonitorV2MetricsRollupSQL = `
 INSERT INTO channel_monitor_v2_metrics_rollup (
   bucket_start, bucket_seconds, platform, group_id, model, success_requests, error_requests,
   upstream_affected_requests, upstream_attempt_count, input_tokens, output_tokens,
-  cache_creation_tokens, cache_read_tokens, ttft_sum_ms, ttft_count, duration_sum_ms,
+  cache_creation_tokens, cache_read_tokens, cache_eligible_input_tokens, cache_eligible_creation_tokens,
+  ttft_sum_ms, ttft_count, duration_sum_ms,
   duration_count, computed_at
 )
 ` + channelMonitorV2FixedRollupBoundsSQL + `
@@ -438,6 +453,7 @@ SELECT date_bin($1::interval, m.bucket_start, ` + channelMonitorV2DateBinOrigin 
        platform, group_id, model, SUM(success_requests), SUM(error_requests),
        SUM(upstream_affected_requests), SUM(upstream_attempt_count), SUM(input_tokens),
        SUM(output_tokens), SUM(cache_creation_tokens), SUM(cache_read_tokens),
+       ` + channelMonitorV2CacheEligibleRollupSQL + `,
        SUM(ttft_sum_ms), SUM(ttft_count), SUM(duration_sum_ms), SUM(duration_count), NOW()
 FROM channel_monitor_v2_metrics_1m m, bounds
 WHERE m.bucket_start >= bounds.start_at AND m.bucket_start < bounds.end_at
@@ -447,12 +463,14 @@ const channelMonitorV2UserMetricsRollupSQL = `
 INSERT INTO channel_monitor_v2_user_metrics_rollup (
   bucket_start, bucket_seconds, platform, group_id, model, user_id, success_requests,
   error_requests, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
+  cache_eligible_input_tokens, cache_eligible_creation_tokens,
   ttft_sum_ms, ttft_count, duration_sum_ms, duration_count, computed_at
 )
 ` + channelMonitorV2FixedRollupBoundsSQL + `
 SELECT date_bin($1::interval, m.bucket_start, ` + channelMonitorV2DateBinOrigin + `), $2::integer,
        platform, group_id, model, user_id, SUM(success_requests), SUM(error_requests),
        SUM(input_tokens), SUM(output_tokens), SUM(cache_creation_tokens), SUM(cache_read_tokens),
+       ` + channelMonitorV2CacheEligibleRollupSQL + `,
        SUM(ttft_sum_ms), SUM(ttft_count), SUM(duration_sum_ms), SUM(duration_count), NOW()
 FROM channel_monitor_v2_user_metrics_1m m, bounds
 WHERE m.bucket_start >= bounds.start_at AND m.bucket_start < bounds.end_at

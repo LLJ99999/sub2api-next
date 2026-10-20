@@ -95,3 +95,13 @@ export function formatUsageCacheRate(row: UsageCacheRateRow | null | undefined):
   if (rounded >= 100) return '100%'
   return `${rounded.toFixed(1)}%`
 }
+
+/**
+ * 两位小数的缓存率文本，如 "96.22%"，用于用量记录行内徽标。
+ * 口径同 usageCacheRate：cache_read ÷ (未缓存输入 + cache_read + cache_creation)。
+ */
+export function formatUsageCacheRatePrecise(row: UsageCacheRateRow | null | undefined): string | null {
+  const rate = usageCacheRate(row)
+  if (rate == null) return null
+  return `${(rate * 100).toFixed(2)}%`
+}

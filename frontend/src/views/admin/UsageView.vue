@@ -686,12 +686,14 @@ const exportToExcel = async () => {
 
 // Column visibility
 const ALWAYS_VISIBLE = ['user', 'created_at']
-const DEFAULT_HIDDEN_COLUMNS = ['request_id', 'upstream_request_id', 'user_agent']
+// output_tps / cache_hit_rate 独立排序列默认隐藏：默认以「类型」列下的缓存率 / TPS 徽标展示，需要排序时可在列设置中打开。
+const DEFAULT_HIDDEN_COLUMNS = ['request_id', 'upstream_request_id', 'user_agent', 'output_tps', 'cache_hit_rate']
 const HIDDEN_COLUMNS_KEY = 'usage-hidden-columns'
 const HIDDEN_COLUMNS_VERSION_KEY = 'usage-hidden-columns-version'
 // 隐藏列版本链：每级只把当级新增列加入隐藏集，不重置用户已显式打开的列。
-const HIDDEN_COLUMNS_PREV_VERSION = 'request-id-hidden-by-default'
-const HIDDEN_COLUMNS_CURRENT_VERSION = 'upstream-request-id-hidden-by-default'
+const HIDDEN_COLUMNS_PREV_PREV_VERSION = 'request-id-hidden-by-default'
+const HIDDEN_COLUMNS_PREV_VERSION = 'upstream-request-id-hidden-by-default'
+const HIDDEN_COLUMNS_CURRENT_VERSION = 'metric-columns-hidden-by-default'
 
 const allColumns = computed(() => [
   { key: 'user', label: t('admin.usage.user'), sortable: false },
@@ -824,9 +826,13 @@ const loadSavedColumns = () => {
       const savedVersion = localStorage.getItem(HIDDEN_COLUMNS_VERSION_KEY)
       if (savedVersion !== HIDDEN_COLUMNS_CURRENT_VERSION) {
         if (savedVersion !== HIDDEN_COLUMNS_PREV_VERSION) {
-          hiddenColumns.add('request_id')
+          if (savedVersion !== HIDDEN_COLUMNS_PREV_PREV_VERSION) {
+            hiddenColumns.add('request_id')
+          }
+          hiddenColumns.add('upstream_request_id')
         }
-        hiddenColumns.add('upstream_request_id')
+        hiddenColumns.add('output_tps')
+        hiddenColumns.add('cache_hit_rate')
         localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
         localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
       }

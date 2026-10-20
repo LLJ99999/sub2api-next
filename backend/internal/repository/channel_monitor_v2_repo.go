@@ -139,7 +139,10 @@ type channelMonitorV2Fact struct {
 	GroupID                                             int64
 	Success, Errors, UpstreamAffected, UpstreamAttempts int64
 	Input, Output, CacheCreation, CacheRead             int64
-	TTFTSum, TTFTCount, DurationSum, DurationCount      int64
+	// CacheEligibleInput / CacheEligibleCreation are the cache-rate denominator
+	// parts: input / creation tokens of requests with cache_read_tokens > 0.
+	CacheEligibleInput, CacheEligibleCreation      int64
+	TTFTSum, TTFTCount, DurationSum, DurationCount int64
 }
 
 type channelMonitorV2Histogram struct {
@@ -168,10 +171,10 @@ func (r *channelMonitorV2Repository) GetDimensions(ctx context.Context, filter s
 	catalogFilter := channelMonitorV2CatalogFilter(channelMonitorV2CommonCoverageFilter(filter, *coverage))
 	where, args, _ := channelMonitorV2WhereWithRollup(catalogFilter, cfg, "m")
 	query := `SELECT m.platform, COALESCE(g.name, ''), lower(COALESCE(NULLIF(TRIM(g.platform), ''), 'unknown')), m.group_id, m.model,
-	                 SUM(m.success_requests + m.error_requests)
+	                 SUM(m.success_requests + m.error_requests), COALESCE(g.sort_order, 0)
 	          FROM ` + channelMonitorV2MetricsTable(catalogFilter) + ` m
 	          LEFT JOIN groups g ON g.id = NULLIF(m.group_id, 0) ` + where + `
-	          GROUP BY m.platform, g.name, g.platform, m.group_id, m.model`
+	          GROUP BY m.platform, g.name, g.platform, g.sort_order, m.group_id, m.model`
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -186,9 +189,10 @@ func (r *channelMonitorV2Repository) GetDimensions(ctx context.Context, filter s
 	// different upstream models and must not share counts.
 	modelCounts := map[string]modelValue{}
 	type groupValue struct {
-		name     string
-		platform string
-		count    int64
+		name      string
+		platform  string
+		count     int64
+		sortOrder int64
 	}
 	groupCounts := map[int64]groupValue{}
 	for _, platform := range channelMonitorV2EnabledPlatforms(cfg) {
@@ -207,12 +211,12 @@ func (r *channelMonitorV2Repository) GetDimensions(ctx context.Context, filter s
 		return nil, err
 	}
 	for groupID, info := range groupInfo {
-		groupCounts[groupID] = groupValue{name: info.name, platform: info.platform, count: 0}
+		groupCounts[groupID] = groupValue{name: info.name, platform: info.platform, count: 0, sortOrder: info.sortOrder}
 	}
 	for rows.Next() {
 		var platform, groupName, groupPlatform, model string
-		var groupID, count int64
-		if err := rows.Scan(&platform, &groupName, &groupPlatform, &groupID, &model, &count); err != nil {
+		var groupID, count, groupSortOrder int64
+		if err := rows.Scan(&platform, &groupName, &groupPlatform, &groupID, &model, &count, &groupSortOrder); err != nil {
 			return nil, err
 		}
 		platformCounts[platform] += count
@@ -229,6 +233,7 @@ func (r *channelMonitorV2Repository) GetDimensions(ctx context.Context, filter s
 			current.name = groupName
 			current.platform = groupPlatform
 			current.count += count
+			current.sortOrder = groupSortOrder
 			groupCounts[groupID] = current
 		}
 	}
@@ -243,14 +248,24 @@ func (r *channelMonitorV2Repository) GetDimensions(ctx context.Context, filter s
 	for value, meta := range modelCounts {
 		result.Models = append(result.Models, service.ChannelMonitorV2Dimension{Value: value, Label: channelMonitorV2ModelLabel(value), Platform: meta.platform, RequestCount: meta.count})
 	}
+	groupSortOrders := make(map[int64]int64, len(groupCounts))
 	for id, value := range groupCounts {
+		groupSortOrders[id] = value.sortOrder
 		result.Groups = append(result.Groups, service.ChannelMonitorV2GroupDimension{ID: id, Name: value.name, Platform: value.platform, RequestCount: value.count})
 	}
 	sort.Slice(result.Platforms, func(i, j int) bool {
 		return channelMonitorV2PlatformLess(cfg, result.Platforms[i].Value, result.Platforms[j].Value)
 	})
 	sort.Slice(result.Models, func(i, j int) bool { return result.Models[i].RequestCount > result.Models[j].RequestCount })
-	sort.Slice(result.Groups, func(i, j int) bool { return result.Groups[i].RequestCount > result.Groups[j].RequestCount })
+	// Groups: platform order → operator group_order → groups.sort_order → volume.
+	// Sorting only by volume made the picker jump around between refreshes.
+	dimGroupOrder := channelMonitorV2GroupOrderIndex(cfg.GroupOrder)
+	sort.SliceStable(result.Groups, func(i, j int) bool {
+		a, b := result.Groups[i], result.Groups[j]
+		return channelMonitorV2GroupLess(cfg, dimGroupOrder,
+			channelMonitorV2GroupSortKey{platform: a.Platform, id: a.ID, name: a.Name, sortOrder: groupSortOrders[a.ID], hasSortOrder: true, volume: a.RequestCount},
+			channelMonitorV2GroupSortKey{platform: b.Platform, id: b.ID, name: b.Name, sortOrder: groupSortOrders[b.ID], hasSortOrder: true, volume: b.RequestCount})
+	})
 	return result, rows.Err()
 }
 
@@ -523,8 +538,9 @@ func (r *channelMonitorV2Repository) GetMatrix(ctx context.Context, filter servi
 		result.Items = append(result.Items, row)
 	}
 	groupOrder := channelMonitorV2GroupOrderIndex(cfg.GroupOrder)
-	sort.Slice(result.Items, func(i, j int) bool {
-		return channelMonitorV2MatrixLess(cfg, groupOrder, result.Items[i], result.Items[j])
+	sortCtx := newChannelMonitorV2MatrixSortContext(result.Items, groupInfo)
+	sort.SliceStable(result.Items, func(i, j int) bool {
+		return channelMonitorV2MatrixLessWith(cfg, groupOrder, sortCtx, result.Items[i], result.Items[j])
 	})
 	if filter.IncludeRecentSamples && groupBy == service.ChannelMonitorV2GroupByPlatformGroup {
 		if err := r.attachRecentSampleBuckets(ctx, result, filter, cfg, admin); err != nil {
@@ -677,9 +693,10 @@ func channelMonitorV2RestrictedGroupScopeEmpty(filter service.ChannelMonitorV2Fi
 }
 
 type channelMonitorV2GroupInfo struct {
-	rate     float64
-	name     string
-	platform string
+	rate      float64
+	name      string
+	platform  string
+	sortOrder int64
 }
 
 func (r *channelMonitorV2Repository) listActiveGroupIDs(ctx context.Context) ([]int64, error) {
@@ -704,7 +721,7 @@ func (r *channelMonitorV2Repository) loadChannelMonitorV2GroupInfo(ctx context.C
 	if len(groupIDs) == 0 {
 		return out, nil
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT id, COALESCE(name, ''), lower(COALESCE(NULLIF(TRIM(platform), ''), 'unknown')), rate_multiplier FROM groups WHERE id = ANY($1) AND deleted_at IS NULL AND status = 'active'`, pq.Array(groupIDs))
+	rows, err := r.db.QueryContext(ctx, `SELECT id, COALESCE(name, ''), lower(COALESCE(NULLIF(TRIM(platform), ''), 'unknown')), rate_multiplier, COALESCE(sort_order, 0) FROM groups WHERE id = ANY($1) AND deleted_at IS NULL AND status = 'active'`, pq.Array(groupIDs))
 	if err != nil {
 		return nil, err
 	}
@@ -713,10 +730,11 @@ func (r *channelMonitorV2Repository) loadChannelMonitorV2GroupInfo(ctx context.C
 		var id int64
 		var name, platform string
 		var rate float64
-		if err := rows.Scan(&id, &name, &platform, &rate); err != nil {
+		var sortOrder int64
+		if err := rows.Scan(&id, &name, &platform, &rate, &sortOrder); err != nil {
 			return nil, err
 		}
-		out[id] = channelMonitorV2GroupInfo{name: name, platform: platform, rate: rate}
+		out[id] = channelMonitorV2GroupInfo{name: name, platform: platform, rate: rate, sortOrder: sortOrder}
 	}
 	return out, rows.Err()
 }
@@ -901,7 +919,8 @@ func (r *channelMonitorV2Repository) GetUsers(ctx context.Context, filter servic
 	filter = effectiveFilter
 	where, args, _ := channelMonitorV2WhereWithRollup(filter, cfg, "m")
 	query := `SELECT m.user_id,COALESCE(u.email,''),COALESCE(u.username,''),m.platform,m.model,
-	SUM(m.success_requests),SUM(m.error_requests),SUM(m.input_tokens),SUM(m.output_tokens),SUM(m.cache_creation_tokens),SUM(m.cache_read_tokens),SUM(m.ttft_sum_ms),SUM(m.ttft_count),SUM(m.duration_sum_ms),SUM(m.duration_count)
+	SUM(m.success_requests),SUM(m.error_requests),SUM(m.input_tokens),SUM(m.output_tokens),SUM(m.cache_creation_tokens),SUM(m.cache_read_tokens),SUM(m.ttft_sum_ms),SUM(m.ttft_count),SUM(m.duration_sum_ms),SUM(m.duration_count),
+	` + channelMonitorV2CacheEligibleReadSQL + `
 	FROM ` + channelMonitorV2UserMetricsTable(filter) + ` m LEFT JOIN users u ON u.id=m.user_id ` + where + ` GROUP BY m.user_id,u.email,u.username,m.platform,m.model`
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -915,7 +934,7 @@ func (r *channelMonitorV2Repository) GetUsers(ctx context.Context, filter servic
 		var uid int64
 		var email, username string
 		var f channelMonitorV2Fact
-		if err := rows.Scan(&uid, &email, &username, &f.Platform, &f.Model, &f.Success, &f.Errors, &f.Input, &f.Output, &f.CacheCreation, &f.CacheRead, &f.TTFTSum, &f.TTFTCount, &f.DurationSum, &f.DurationCount); err != nil {
+		if err := rows.Scan(&uid, &email, &username, &f.Platform, &f.Model, &f.Success, &f.Errors, &f.Input, &f.Output, &f.CacheCreation, &f.CacheRead, &f.TTFTSum, &f.TTFTCount, &f.DurationSum, &f.DurationCount, &f.CacheEligibleInput, &f.CacheEligibleCreation); err != nil {
 			return nil, err
 		}
 		if !channelMonitorV2ModelSelected(filter, cfg, f.Platform, f.Model) {
@@ -995,7 +1014,7 @@ func (r *channelMonitorV2Repository) loadFacts(ctx context.Context, filter servi
 			group = bucketExpr + "," + group
 		}
 	}
-	query := `SELECT ` + bucketExpr + `,m.platform,m.group_id,COALESCE(g.name,''),m.model,SUM(m.success_requests),SUM(m.error_requests),SUM(m.upstream_affected_requests),SUM(m.upstream_attempt_count),SUM(m.input_tokens),SUM(m.output_tokens),SUM(m.cache_creation_tokens),SUM(m.cache_read_tokens),SUM(m.ttft_sum_ms),SUM(m.ttft_count),SUM(m.duration_sum_ms),SUM(m.duration_count) FROM ` + channelMonitorV2MetricsTable(filter) + ` m LEFT JOIN groups g ON g.id=NULLIF(m.group_id,0) ` + where + ` GROUP BY ` + group
+	query := `SELECT ` + bucketExpr + `,m.platform,m.group_id,COALESCE(g.name,''),m.model,SUM(m.success_requests),SUM(m.error_requests),SUM(m.upstream_affected_requests),SUM(m.upstream_attempt_count),SUM(m.input_tokens),SUM(m.output_tokens),SUM(m.cache_creation_tokens),SUM(m.cache_read_tokens),SUM(m.ttft_sum_ms),SUM(m.ttft_count),SUM(m.duration_sum_ms),SUM(m.duration_count),` + channelMonitorV2CacheEligibleReadSQL + ` FROM ` + channelMonitorV2MetricsTable(filter) + ` m LEFT JOIN groups g ON g.id=NULLIF(m.group_id,0) ` + where + ` GROUP BY ` + group
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -1005,7 +1024,7 @@ func (r *channelMonitorV2Repository) loadFacts(ctx context.Context, filter servi
 	for rows.Next() {
 		var bucket time.Time
 		var f channelMonitorV2Fact
-		if err := rows.Scan(&bucket, &f.Platform, &f.GroupID, &f.GroupName, &f.Model, &f.Success, &f.Errors, &f.UpstreamAffected, &f.UpstreamAttempts, &f.Input, &f.Output, &f.CacheCreation, &f.CacheRead, &f.TTFTSum, &f.TTFTCount, &f.DurationSum, &f.DurationCount); err != nil {
+		if err := rows.Scan(&bucket, &f.Platform, &f.GroupID, &f.GroupName, &f.Model, &f.Success, &f.Errors, &f.UpstreamAffected, &f.UpstreamAttempts, &f.Input, &f.Output, &f.CacheCreation, &f.CacheRead, &f.TTFTSum, &f.TTFTCount, &f.DurationSum, &f.DurationCount, &f.CacheEligibleInput, &f.CacheEligibleCreation); err != nil {
 			return nil, err
 		}
 		f.BucketStart = bucket.UTC().Format(time.RFC3339Nano)
@@ -1239,35 +1258,105 @@ func channelMonitorV2GroupOrderIndex(order []int64) map[int64]int {
 	return index
 }
 
-// channelMonitorV2MatrixLess orders rows by the configured platform list, then
-// by the operator group order inside that platform. Groups missing from the
-// order keep the old name, then id sequence, after every ordered group.
-func channelMonitorV2MatrixLess(cfg service.ChannelMonitorV2Config, order map[int64]int, a, b service.ChannelMonitorV2MatrixRow) bool {
-	if a.Platform != b.Platform {
-		return channelMonitorV2PlatformLess(cfg, a.Platform, b.Platform)
+// channelMonitorV2GroupSortKey carries everything group ordering looks at.
+type channelMonitorV2GroupSortKey struct {
+	platform     string
+	id           int64
+	name         string
+	sortOrder    int64
+	hasSortOrder bool
+	volume       int64
+}
+
+// channelMonitorV2GroupLess is the single group ordering used by the monitor:
+//  1. configured platform order (cfg.Platforms; operator: OpenAI → Claude → Gemini → others)
+//  2. explicit monitor group_order (migration 290), ordered groups first
+//  3. groups.sort_order ascending (the admin group list order)
+//  4. request volume descending
+//  5. name, then id, for a deterministic tail
+func channelMonitorV2GroupLess(cfg service.ChannelMonitorV2Config, order map[int64]int, a, b channelMonitorV2GroupSortKey) bool {
+	if a.platform != b.platform {
+		return channelMonitorV2PlatformLess(cfg, a.platform, b.platform)
 	}
 	missing := len(order)
 	ia, ib := missing, missing
-	if a.GroupID != nil {
-		if index, ok := order[*a.GroupID]; ok {
-			ia = index
-		}
+	if index, ok := order[a.id]; ok && a.id > 0 {
+		ia = index
 	}
-	if b.GroupID != nil {
-		if index, ok := order[*b.GroupID]; ok {
-			ib = index
-		}
+	if index, ok := order[b.id]; ok && b.id > 0 {
+		ib = index
 	}
 	if ia != ib {
 		return ia < ib
 	}
-	if a.GroupName != b.GroupName {
-		return a.GroupName < b.GroupName
+	if a.hasSortOrder != b.hasSortOrder {
+		return a.hasSortOrder
 	}
-	if a.GroupID != nil && b.GroupID != nil && *a.GroupID != *b.GroupID {
-		return *a.GroupID < *b.GroupID
+	if a.hasSortOrder && a.sortOrder != b.sortOrder {
+		return a.sortOrder < b.sortOrder
 	}
-	return a.Model < b.Model
+	if a.volume != b.volume {
+		return a.volume > b.volume
+	}
+	if a.name != b.name {
+		return a.name < b.name
+	}
+	return a.id < b.id
+}
+
+// channelMonitorV2MatrixSortContext holds per-group facts the matrix rows do
+// not carry themselves: groups.sort_order and the group's total volume (so
+// platform_group_model rows of one group stay together).
+type channelMonitorV2MatrixSortContext struct {
+	sortOrder map[int64]int64
+	volume    map[int64]int64
+}
+
+func newChannelMonitorV2MatrixSortContext(rows []service.ChannelMonitorV2MatrixRow, info map[int64]channelMonitorV2GroupInfo) channelMonitorV2MatrixSortContext {
+	ctx := channelMonitorV2MatrixSortContext{sortOrder: map[int64]int64{}, volume: map[int64]int64{}}
+	for id, gi := range info {
+		ctx.sortOrder[id] = gi.sortOrder
+	}
+	for _, row := range rows {
+		if row.GroupID != nil {
+			ctx.volume[*row.GroupID] += row.Metrics.RequestCount
+		}
+	}
+	return ctx
+}
+
+func (c channelMonitorV2MatrixSortContext) key(row service.ChannelMonitorV2MatrixRow) channelMonitorV2GroupSortKey {
+	k := channelMonitorV2GroupSortKey{platform: row.Platform, name: row.GroupName, volume: row.Metrics.RequestCount}
+	if row.GroupID != nil {
+		k.id = *row.GroupID
+		k.volume = c.volume[k.id]
+		if so, ok := c.sortOrder[k.id]; ok {
+			k.sortOrder, k.hasSortOrder = so, true
+		}
+	}
+	return k
+}
+
+// channelMonitorV2MatrixLess orders rows without sort_order/volume context
+// (platform → group_order → name → id → model). Kept for callers/tests that
+// have no group info.
+func channelMonitorV2MatrixLess(cfg service.ChannelMonitorV2Config, order map[int64]int, a, b service.ChannelMonitorV2MatrixRow) bool {
+	return channelMonitorV2MatrixLessWith(cfg, order, channelMonitorV2MatrixSortContext{}, a, b)
+}
+
+func channelMonitorV2MatrixLessWith(cfg service.ChannelMonitorV2Config, order map[int64]int, sortCtx channelMonitorV2MatrixSortContext, a, b service.ChannelMonitorV2MatrixRow) bool {
+	ka, kb := sortCtx.key(a), sortCtx.key(b)
+	if sortCtx.volume == nil {
+		// No context: do not let per-row volume reorder groups.
+		ka.volume, kb.volume = 0, 0
+	}
+	if ka.platform != kb.platform || ka.id != kb.id || ka.name != kb.name {
+		return channelMonitorV2GroupLess(cfg, order, ka, kb)
+	}
+	if a.Model != b.Model {
+		return a.Model < b.Model
+	}
+	return false
 }
 
 func channelMonitorV2PlatformLess(cfg service.ChannelMonitorV2Config, a, b string) bool {
@@ -1409,8 +1498,13 @@ func shiftSQLPlaceholders(query string, offset int) string {
 	return query
 }
 
+// channelMonitorV2CacheEligibleReadSQL reads the cache-rate denominator parts.
+// NULL (rows written before migration 320) falls back to the full totals.
+const channelMonitorV2CacheEligibleReadSQL = `COALESCE(SUM(COALESCE(m.cache_eligible_input_tokens, m.input_tokens)),0),COALESCE(SUM(COALESCE(m.cache_eligible_creation_tokens, m.cache_creation_tokens)),0)`
+
 type metricAccumulator struct {
 	success, errors, upstreamAffected, upstreamAttempts, input, output, cacheCreation, cacheRead, ttftSum, ttftCount, durationSum, durationCount int64
+	cacheEligibleInput, cacheEligibleCreation                                                                                                    int64
 	hist                                                                                                                                         map[string]map[int64]int64
 }
 
@@ -1426,6 +1520,8 @@ func (a *metricAccumulator) addFact(f channelMonitorV2Fact) {
 	a.output += f.Output
 	a.cacheCreation += f.CacheCreation
 	a.cacheRead += f.CacheRead
+	a.cacheEligibleInput += f.CacheEligibleInput
+	a.cacheEligibleCreation += f.CacheEligibleCreation
 	a.ttftSum += f.TTFTSum
 	a.ttftCount += f.TTFTCount
 	a.durationSum += f.DurationSum
@@ -1440,7 +1536,9 @@ func (a *metricAccumulator) addHistogram(h channelMonitorV2Histogram) {
 func (a *metricAccumulator) metric(minutes float64, admin bool) service.ChannelMonitorV2Metric {
 	requests := a.success + a.errors
 	tokens := a.input + a.output + a.cacheCreation + a.cacheRead
-	denom := a.input + a.cacheCreation + a.cacheRead
+	// Cache rate = read / (eligible uncached input + eligible creation + read),
+	// where "eligible" only counts requests that read cache at all.
+	denom := a.cacheEligibleInput + a.cacheEligibleCreation + a.cacheRead
 	if minutes <= 0 {
 		minutes = 1
 	}

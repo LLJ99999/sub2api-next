@@ -65,3 +65,31 @@ describe('usageTps', () => {
     expect(usageOutputTps({ output_tokens: 100, duration_ms: 40_000, billing_mode: 'video' })).toBeNull()
   })
 })
+
+describe('usageBadgeTps', () => {
+  it('uses generation-phase TPS when computable', async () => {
+    const { usageBadgeTps, formatUsageBadgeTps } = await import('../usageTps')
+    const row = { output_tokens: 600, duration_ms: 12_000, first_token_ms: 2_000 }
+    expect(usageBadgeTps(row)).toBeCloseTo(60)
+    expect(formatUsageBadgeTps(row)).toBe('60.0 t/s')
+  })
+
+  it('falls back to output / total duration for short outputs', async () => {
+    const { usageBadgeTps, formatUsageBadgeTps } = await import('../usageTps')
+    const row = { output_tokens: 5, duration_ms: 2_381, first_token_ms: 2_300 }
+    expect(usageBadgeTps(row)).toBeCloseTo(5 / 2.381)
+    expect(formatUsageBadgeTps(row)).toBe('2.1 t/s')
+    expect(formatUsageBadgeTps({ output_tokens: 3000, duration_ms: 10, first_token_ms: 9 })).toBe('300000 t/s')
+  })
+
+  it('returns null without output, duration, or for image/video', async () => {
+    const { usageBadgeTps } = await import('../usageTps')
+    expect(usageBadgeTps(null)).toBeNull()
+    expect(usageBadgeTps({ output_tokens: 0, duration_ms: 1000 })).toBeNull()
+    expect(usageBadgeTps({ output_tokens: 5, duration_ms: 0 })).toBeNull()
+    expect(usageBadgeTps({ output_tokens: 5, duration_ms: null as any })).toBeNull()
+    expect(usageBadgeTps({ output_tokens: 50, duration_ms: 1000, image_count: 1 })).toBeNull()
+    expect(usageBadgeTps({ output_tokens: 50, duration_ms: 1000, image_output_tokens: 10 })).toBeNull()
+    expect(usageBadgeTps({ output_tokens: 50, duration_ms: 1000, billing_mode: 'video' })).toBeNull()
+  })
+})

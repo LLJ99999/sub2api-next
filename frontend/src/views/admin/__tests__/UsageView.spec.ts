@@ -527,7 +527,7 @@ describe('admin UsageView request ID column visibility', () => {
     )
     expect(localStorage.setItem).toHaveBeenCalledWith(
       'usage-hidden-columns-version',
-      'upstream-request-id-hidden-by-default',
+      'metric-columns-hidden-by-default',
     )
   })
 
@@ -983,9 +983,17 @@ describe('admin UsageView upstream cost toggle and analytics tab', () => {
     visible.unmount()
   })
 
-  it('offers sortable TPS and cache hit rate columns and lazily mounts analytics with filters', async () => {
+  it('offers sortable TPS and cache hit rate columns (hidden by default) and lazily mounts analytics with filters', async () => {
     const wrapper = mountAdmin()
     vi.advanceTimersByTime(120)
+    await flushPromises()
+    const initial = wrapper.findComponent(UsageTableCostStub).props('columns') as Array<{ key: string; sortable: boolean }>
+    // 默认由「类型」列下的徽标展示缓存率 / TPS，独立排序列默认隐藏
+    expect(initial.map((c) => c.key)).not.toContain('output_tps')
+    expect(initial.map((c) => c.key)).not.toContain('cache_hit_rate')
+    const vmCols = wrapper.vm as any
+    vmCols.toggleColumn('output_tps')
+    vmCols.toggleColumn('cache_hit_rate')
     await flushPromises()
     const columns = wrapper.findComponent(UsageTableCostStub).props('columns') as Array<{ key: string; sortable: boolean }>
     expect(columns).toEqual(expect.arrayContaining([
@@ -1004,6 +1012,41 @@ describe('admin UsageView upstream cost toggle and analytics tab', () => {
     expect(panel.exists()).toBe(true)
     expect(panel.props()).toEqual(expect.objectContaining({ groupId: 3, model: 'gpt-5', showUpstreamCost: true }))
     expect(panel.props('startDate')).toBeTruthy()
+    wrapper.unmount()
+  })
+})
+
+describe('admin UsageView hidden-column version migration', () => {
+  afterEach(() => {
+    vi.mocked(localStorage.getItem).mockImplementation(() => null)
+    vi.mocked(localStorage.setItem).mockImplementation(() => undefined)
+  })
+
+  it('hides the TPS / cache columns once for users saved on the previous version, keeping their other choices', async () => {
+    const store: Record<string, string> = {
+      'usage-hidden-columns': JSON.stringify(['user_agent']),
+      'usage-hidden-columns-version': 'upstream-request-id-hidden-by-default',
+    }
+    vi.mocked(localStorage.getItem).mockImplementation((key: string) => store[key] ?? null)
+    vi.mocked(localStorage.setItem).mockImplementation((key: string, value: string) => { store[key] = value })
+    const TableStub = { props: ['columns'], template: '<div />' }
+    const wrapper = mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub, UsageTable: TableStub,
+        UsageExportProgress: true, UsageCleanupDialog: true, UserBalanceHistoryModal: true, AuditLogModal: true,
+        Pagination: true, Select: true, DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
+        UserTokenRanking: true, OpsErrorLogTable: true, OpsErrorDetailModal: true, UsageAnalyticsPanel: true,
+      } },
+    })
+    await flushPromises()
+    const keys = (wrapper.findComponent(TableStub).props('columns') as Array<{ key: string }>).map((c) => c.key)
+    expect(keys).not.toContain('output_tps')
+    expect(keys).not.toContain('cache_hit_rate')
+    // request_id / upstream_request_id were visible by the user's own choice on the previous version
+    expect(keys).toContain('request_id')
+    expect(keys).toContain('upstream_request_id')
+    expect(store['usage-hidden-columns-version']).toBe('metric-columns-hidden-by-default')
     wrapper.unmount()
   })
 })

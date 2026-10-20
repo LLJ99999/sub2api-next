@@ -47,7 +47,7 @@ func channelMonitorV2RecentSampleFactsSQL(modelClause string) string {
 	}
 	// $5 is the normalized minimum sample. HAVING runs before LIMIT, so the 18
 	// rows are the newest buckets that can be scored, not the newest noisy ones.
-	return fmt.Sprintf(`SELECT s.bucket_start, s.platform, s.group_id, s.success_requests, s.error_requests, s.upstream_affected, s.upstream_attempts, s.input_tokens, s.output_tokens, s.cache_creation_tokens, s.cache_read_tokens, s.ttft_sum_ms, s.ttft_count, s.duration_sum_ms, s.duration_count
+	return fmt.Sprintf(`SELECT s.bucket_start, s.platform, s.group_id, s.success_requests, s.error_requests, s.upstream_affected, s.upstream_attempts, s.input_tokens, s.output_tokens, s.cache_creation_tokens, s.cache_read_tokens, s.ttft_sum_ms, s.ttft_count, s.duration_sum_ms, s.duration_count, s.cache_eligible_input_tokens, s.cache_eligible_creation_tokens
 FROM unnest($1::text[], $2::bigint[]) AS keys(platform, group_id)
 CROSS JOIN LATERAL (
   SELECT m.bucket_start, m.platform, m.group_id,
@@ -62,7 +62,9 @@ CROSS JOIN LATERAL (
          SUM(m.ttft_sum_ms)::bigint AS ttft_sum_ms,
          SUM(m.ttft_count)::bigint AS ttft_count,
          SUM(m.duration_sum_ms)::bigint AS duration_sum_ms,
-         SUM(m.duration_count)::bigint AS duration_count
+         SUM(m.duration_count)::bigint AS duration_count,
+         COALESCE(SUM(COALESCE(m.cache_eligible_input_tokens, m.input_tokens)), 0)::bigint AS cache_eligible_input_tokens,
+         COALESCE(SUM(COALESCE(m.cache_eligible_creation_tokens, m.cache_creation_tokens)), 0)::bigint AS cache_eligible_creation_tokens
   FROM channel_monitor_v2_metrics_rollup m
   WHERE m.bucket_seconds = %d
     AND m.platform = keys.platform
@@ -221,7 +223,7 @@ func (r *channelMonitorV2Repository) loadRecentSampleBuckets(ctx context.Context
 	for rows.Next() {
 		var bucket time.Time
 		var fact channelMonitorV2Fact
-		if err := rows.Scan(&bucket, &fact.Platform, &fact.GroupID, &fact.Success, &fact.Errors, &fact.UpstreamAffected, &fact.UpstreamAttempts, &fact.Input, &fact.Output, &fact.CacheCreation, &fact.CacheRead, &fact.TTFTSum, &fact.TTFTCount, &fact.DurationSum, &fact.DurationCount); err != nil {
+		if err := rows.Scan(&bucket, &fact.Platform, &fact.GroupID, &fact.Success, &fact.Errors, &fact.UpstreamAffected, &fact.UpstreamAttempts, &fact.Input, &fact.Output, &fact.CacheCreation, &fact.CacheRead, &fact.TTFTSum, &fact.TTFTCount, &fact.DurationSum, &fact.DurationCount, &fact.CacheEligibleInput, &fact.CacheEligibleCreation); err != nil {
 			return nil, fmt.Errorf("scan recent monitor samples: %w", err)
 		}
 		// SQL already applies this bound. Keep it here so a row that does not

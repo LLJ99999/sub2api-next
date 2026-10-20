@@ -1196,3 +1196,113 @@ describe('admin UsageTable explicit metric columns and upstream cost toggle', ()
     expect(wrapper.text()).toContain('A $1.000000')
   })
 })
+
+describe('admin UsageTable cache-rate / TPS badges under the request type', () => {
+  const StreamStub = {
+    props: ['data'],
+    template: `
+      <div>
+        <div v-for="row in data" :key="row.request_id" :data-row="row.request_id">
+          <slot name="cell-stream" :row="row" />
+        </div>
+      </div>
+    `,
+  }
+
+  const mountStream = (data: Record<string, unknown>[], extra: Record<string, unknown> = {}) =>
+    mount(UsageTable, {
+      props: {
+        data: data as any,
+        loading: false,
+        columns: [{ key: 'stream', label: 'Type' }],
+        ...extra,
+      },
+      global: { stubs: { DataTable: StreamStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+
+  const row = {
+    ...baseImageRow,
+    request_id: 'req-badge',
+    request_type: 'stream',
+    stream: true,
+    billing_mode: 'token',
+    image_count: 0,
+    image_output_tokens: 0,
+    input_tokens: 189,
+    cache_read_tokens: 4_864,
+    cache_creation_tokens: 2,
+    output_tokens: 5,
+    duration_ms: 2_381,
+    first_token_ms: 2_300,
+  }
+
+  const badge = (w: ReturnType<typeof mountStream>, rid: string, id: string) =>
+    w.find(`[data-row="${rid}"] [data-testid="${id}"]`)
+
+  it('shows a two-decimal cache badge and a fallback TPS badge for short outputs', () => {
+    appStoreMocks.cachedPublicSettings = undefined
+    const w = mountStream([row])
+    // 4864 / (189 + 4864 + 2) = 96.22%
+    expect(badge(w, 'req-badge', 'usage-cache-rate-badge').text()).toBe('usage.badgeCacheRate 96.22%')
+    // 5 output tokens < generation-phase minimum → fallback 5 / 2.381s = 2.1 t/s
+    expect(badge(w, 'req-badge', 'usage-tps-badge').text()).toBe('usage.badgeTps: 2.1 t/s')
+    // still stacked under the request-type badge
+    expect(w.find('[data-row="req-badge"] [data-testid="request-type-badge"]').exists()).toBe(true)
+  })
+
+  it('prefers the generation-phase TPS when it is computable', () => {
+    appStoreMocks.cachedPublicSettings = undefined
+    const w = mountStream([{ ...row, request_id: 'req-gen', output_tokens: 600, duration_ms: 12_000, first_token_ms: 2_000 }])
+    expect(badge(w, 'req-gen', 'usage-tps-badge').text()).toBe('usage.badgeTps: 60.0 t/s')
+  })
+
+  it('omits the TPS badge without output or duration, and the cache badge without prompt tokens', () => {
+    appStoreMocks.cachedPublicSettings = undefined
+    const w = mountStream([
+      { ...row, request_id: 'req-none', output_tokens: 0, input_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0 },
+      { ...row, request_id: 'req-nodur', duration_ms: null },
+    ])
+    expect(badge(w, 'req-none', 'usage-tps-badge').exists()).toBe(false)
+    expect(badge(w, 'req-none', 'usage-cache-rate-badge').exists()).toBe(false)
+    expect(badge(w, 'req-nodur', 'usage-tps-badge').exists()).toBe(false)
+    expect(badge(w, 'req-nodur', 'usage-cache-rate-badge').exists()).toBe(true)
+  })
+
+  it('hides both badges for image requests', () => {
+    appStoreMocks.cachedPublicSettings = undefined
+    const w = mountStream([
+      { ...row, request_id: 'req-img', billing_mode: 'image', image_count: 1 },
+      { ...row, request_id: 'req-img-token', billing_mode: 'token', image_count: 0, image_output_tokens: 1_000 },
+    ])
+    for (const rid of ['req-img', 'req-img-token']) {
+      expect(badge(w, rid, 'usage-tps-badge').exists()).toBe(false)
+      expect(badge(w, rid, 'usage-cache-rate-badge').exists()).toBe(false)
+    }
+  })
+
+  it('respects the cache-rate visibility setting but not the upstream-cost toggle', async () => {
+    appStoreMocks.cachedPublicSettings = { usage_show_cache_rate: false } as any
+    const off = mountStream([row])
+    expect(badge(off, 'req-badge', 'usage-cache-rate-badge').exists()).toBe(false)
+    expect(badge(off, 'req-badge', 'usage-tps-badge').exists()).toBe(true)
+    off.unmount()
+
+    appStoreMocks.cachedPublicSettings = undefined
+    const w = mountStream([row], { showAccountBilling: false })
+    expect(badge(w, 'req-badge', 'usage-cache-rate-badge').exists()).toBe(true)
+    await w.setProps({ showAccountBilling: true })
+    expect(badge(w, 'req-badge', 'usage-cache-rate-badge').exists()).toBe(true)
+  })
+
+  it('shows the cache badge to end users only when the user-facing switch is on', () => {
+    appStoreMocks.cachedPublicSettings = undefined
+    const hidden = mountStream([row], { cacheRateAudience: 'user' })
+    expect(badge(hidden, 'req-badge', 'usage-cache-rate-badge').exists()).toBe(false)
+    expect(badge(hidden, 'req-badge', 'usage-tps-badge').exists()).toBe(true)
+    hidden.unmount()
+    appStoreMocks.cachedPublicSettings = { usage_show_cache_rate_to_users: true } as any
+    const shown = mountStream([row], { cacheRateAudience: 'user' })
+    expect(badge(shown, 'req-badge', 'usage-cache-rate-badge').text()).toBe('usage.badgeCacheRate 96.22%')
+    appStoreMocks.cachedPublicSettings = undefined
+  })
+})

@@ -612,7 +612,8 @@ func TestAttachRecentSampleBucketsKeepsSamplesOutsideSelectedRange(t *testing.T)
 	mock.ExpectQuery("channel_monitor_v2_metrics_rollup").WillReturnRows(sqlmock.NewRows([]string{
 		"bucket_start", "platform", "group_id", "success_requests", "error_requests", "upstream_affected", "upstream_attempts",
 		"input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens", "ttft_sum_ms", "ttft_count", "duration_sum_ms", "duration_count",
-	}).AddRow(outside, "openai", groupID, int64(8), int64(2), int64(0), int64(0), int64(10), int64(20), int64(0), int64(4), int64(3000), int64(8), int64(4000), int64(8)))
+		"cache_eligible_input_tokens", "cache_eligible_creation_tokens",
+	}).AddRow(outside, "openai", groupID, int64(8), int64(2), int64(0), int64(0), int64(10), int64(20), int64(0), int64(4), int64(3000), int64(8), int64(4000), int64(8), int64(10), int64(0)))
 	mock.ExpectQuery("channel_monitor_v2_latency_histograms_rollup").WillReturnRows(sqlmock.NewRows([]string{
 		"bucket_start", "platform", "group_id", "metric", "upper_bound_ms", "sample_count",
 	}).AddRow(outside, "openai", groupID, "ttft", int64(1500), int64(8)))
@@ -655,8 +656,9 @@ func TestAttachRecentSampleBucketsDropsBucketsBelowMinimumSample(t *testing.T) {
 	mock.ExpectQuery("channel_monitor_v2_metrics_rollup").WillReturnRows(sqlmock.NewRows([]string{
 		"bucket_start", "platform", "group_id", "success_requests", "error_requests", "upstream_affected", "upstream_attempts",
 		"input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens", "ttft_sum_ms", "ttft_count", "duration_sum_ms", "duration_count",
-	}).AddRow(quiet, "openai", groupID, int64(9), int64(1), int64(0), int64(0), int64(1), int64(1), int64(0), int64(0), int64(1000), int64(10), int64(1000), int64(10)).
-		AddRow(enough, "openai", groupID, int64(40), int64(10), int64(0), int64(0), int64(1), int64(1), int64(0), int64(0), int64(1000), int64(50), int64(1000), int64(50)))
+		"cache_eligible_input_tokens", "cache_eligible_creation_tokens",
+	}).AddRow(quiet, "openai", groupID, int64(9), int64(1), int64(0), int64(0), int64(1), int64(1), int64(0), int64(0), int64(1000), int64(10), int64(1000), int64(10), int64(0), int64(0)).
+		AddRow(enough, "openai", groupID, int64(40), int64(10), int64(0), int64(0), int64(1), int64(1), int64(0), int64(0), int64(1000), int64(50), int64(1000), int64(50), int64(0), int64(0)))
 	mock.ExpectQuery("channel_monitor_v2_latency_histograms_rollup").WillReturnRows(sqlmock.NewRows([]string{
 		"bucket_start", "platform", "group_id", "metric", "upper_bound_ms", "sample_count",
 	}))
@@ -669,4 +671,90 @@ func TestAttachRecentSampleBucketsDropsBucketsBelowMinimumSample(t *testing.T) {
 	require.Equal(t, enough, samples[0].BucketStart)
 	require.Equal(t, int64(50), samples[0].Metrics.RequestCount)
 	require.NotEqual(t, "unknown", samples[0].Health.Overall)
+}
+
+func TestChannelMonitorV2GroupLessPlatformThenSortOrderThenVolume(t *testing.T) {
+	cfg := service.ChannelMonitorV2Config{Platforms: []service.ChannelMonitorV2PlatformConfig{
+		{Platform: "openai", Enabled: true},
+		{Platform: "anthropic", Enabled: true},
+		{Platform: "gemini", Enabled: true},
+	}}
+	keys := []channelMonitorV2GroupSortKey{
+		{platform: "grok", id: 50, name: "grok", hasSortOrder: true, sortOrder: 0, volume: 99999},
+		{platform: "gemini", id: 40, name: "g", hasSortOrder: true, sortOrder: 0, volume: 10},
+		{platform: "anthropic", id: 30, name: "c", hasSortOrder: true, sortOrder: 0, volume: 500},
+		{platform: "openai", id: 3, name: "0.15", hasSortOrder: true, sortOrder: 2, volume: 5000},
+		{platform: "openai", id: 1, name: "0.2", hasSortOrder: true, sortOrder: 1, volume: 1},
+		{platform: "openai", id: 7, name: "0.3", hasSortOrder: true, sortOrder: 3, volume: 10},
+		{platform: "openai", id: 8, name: "0.35", hasSortOrder: true, sortOrder: 3, volume: 900},
+		{platform: "openai", id: 9, name: "no-info", volume: 1_000_000},
+	}
+	sort.SliceStable(keys, func(i, j int) bool { return channelMonitorV2GroupLess(cfg, map[int64]int{}, keys[i], keys[j]) })
+	got := make([]int64, len(keys))
+	for i, k := range keys {
+		got[i] = k.id
+	}
+	// openai by sort_order (equal sort_order → higher volume first; unknown sort_order last),
+	// then anthropic, gemini, and unlisted platforms last regardless of volume.
+	require.Equal(t, []int64{1, 3, 8, 7, 9, 30, 40, 50}, got)
+}
+
+func TestChannelMonitorV2GroupLessExplicitGroupOrderWins(t *testing.T) {
+	cfg := service.ChannelMonitorV2Config{Platforms: []service.ChannelMonitorV2PlatformConfig{{Platform: "openai", Enabled: true}}}
+	order := channelMonitorV2GroupOrderIndex([]int64{7})
+	a := channelMonitorV2GroupSortKey{platform: "openai", id: 7, hasSortOrder: true, sortOrder: 99}
+	b := channelMonitorV2GroupSortKey{platform: "openai", id: 1, hasSortOrder: true, sortOrder: 0, volume: 1000}
+	require.True(t, channelMonitorV2GroupLess(cfg, order, a, b))
+	require.False(t, channelMonitorV2GroupLess(cfg, order, b, a))
+}
+
+func TestChannelMonitorV2MatrixSortUsesGroupSortOrderAndKeepsGroupRowsTogether(t *testing.T) {
+	cfg := service.ChannelMonitorV2Config{Platforms: []service.ChannelMonitorV2PlatformConfig{{Platform: "openai", Enabled: true}, {Platform: "anthropic", Enabled: true}}}
+	id := func(value int64) *int64 { return &value }
+	row := func(platform string, gid int64, name, model string, reqs int64) service.ChannelMonitorV2MatrixRow {
+		return service.ChannelMonitorV2MatrixRow{Platform: platform, GroupID: id(gid), GroupName: name, Model: model, Metrics: service.ChannelMonitorV2Metric{RequestCount: reqs}}
+	}
+	items := []service.ChannelMonitorV2MatrixRow{
+		row("anthropic", 30, "c", "claude", 9999),
+		row("openai", 2, "0.15", "gpt-b", 3000),
+		row("openai", 1, "0.2", "gpt-b", 1),
+		row("openai", 2, "0.15", "gpt-a", 1),
+		row("openai", 1, "0.2", "gpt-a", 2),
+	}
+	info := map[int64]channelMonitorV2GroupInfo{1: {sortOrder: 0}, 2: {sortOrder: 1}, 30: {sortOrder: 0}}
+	sortCtx := newChannelMonitorV2MatrixSortContext(items, info)
+	sort.SliceStable(items, func(i, j int) bool {
+		return channelMonitorV2MatrixLessWith(cfg, map[int64]int{}, sortCtx, items[i], items[j])
+	})
+	got := []string{}
+	for _, it := range items {
+		got = append(got, fmt.Sprintf("%d/%s", *it.GroupID, it.Model))
+	}
+	require.Equal(t, []string{"1/gpt-a", "1/gpt-b", "2/gpt-a", "2/gpt-b", "30/claude"}, got)
+}
+
+func TestMetricAccumulatorCacheRateExcludesZeroCacheInput(t *testing.T) {
+	acc := newMetricAccumulator()
+	// 1000 total uncached input, of which only 100 came from requests that read cache.
+	acc.addFact(channelMonitorV2Fact{Success: 10, Input: 1000, Output: 50, CacheCreation: 200, CacheRead: 900, CacheEligibleInput: 100, CacheEligibleCreation: 0})
+	m := acc.metric(1, false)
+	require.Equal(t, int64(900), m.CacheRateNumerator)
+	require.Equal(t, int64(1000), m.CacheRateDenominator)
+	require.InDelta(t, 0.9, m.CacheRate, 1e-9)
+	// Token/TPM stay complete.
+	require.Equal(t, int64(1000), m.InputTokens)
+	require.Equal(t, int64(1000+50+200+900), m.TokenCount)
+	require.InDelta(t, float64(2150), m.TPM, 1e-9)
+}
+
+func TestChannelMonitorV2CacheEligibleSQLShapes(t *testing.T) {
+	for _, q := range []string{channelMonitorV2UsageMetricsSQL, channelMonitorV2UserMetricsSQL} {
+		require.Contains(t, q, "cache_eligible_input_tokens, cache_eligible_creation_tokens")
+		require.Contains(t, q, "COALESCE(ul.cache_read_tokens, 0) > 0")
+	}
+	for _, q := range []string{channelMonitorV2MetricsRollupSQL, channelMonitorV2UserMetricsRollupSQL} {
+		require.Contains(t, q, "SUM(COALESCE(cache_eligible_input_tokens, input_tokens))")
+		require.Contains(t, q, "SUM(COALESCE(cache_eligible_creation_tokens, cache_creation_tokens))")
+	}
+	require.Contains(t, channelMonitorV2CacheEligibleReadSQL, "COALESCE(m.cache_eligible_input_tokens, m.input_tokens)")
 }

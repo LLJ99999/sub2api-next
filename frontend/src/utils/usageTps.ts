@@ -50,3 +50,35 @@ export const formatUsageOutputTps = (row: UsageTpsRow | null | undefined): strin
   if (tps == null) return null
   return `${tps >= 100 ? Math.round(tps) : tps.toFixed(1)} t/s`
 }
+
+/**
+ * 用量记录行内 TPS 徽标使用的值。
+ *
+ * 优先使用生成阶段 TPS（usageOutputTps，与排序列/统计口径一致）；当其因
+ * 输出过短或生成窗口过短而不可计算时，回退为整段耗时口径
+ * output_tokens / (duration_ms / 1000)，这样只要 output_tokens > 0 且
+ * duration_ms > 0 就会显示徽标（运营方要求：5 个输出 token 也显示 2.1 t/s）。
+ * 图片 / 视频生成请求不显示。
+ */
+export const usageBadgeTps = (row: UsageTpsRow | null | undefined): number | null => {
+  if (!row) return null
+  if ((row.image_count ?? 0) > 0 || (row.image_output_tokens ?? 0) > 0 || row.billing_mode === BILLING_MODE_VIDEO) {
+    return null
+  }
+  const generation = usageOutputTps(row)
+  if (generation != null) return generation
+  const outputTokens = row.output_tokens ?? 0
+  const durationMs = row.duration_ms ?? 0
+  if (!Number.isFinite(outputTokens) || !Number.isFinite(durationMs) || outputTokens <= 0 || durationMs <= 0) {
+    return null
+  }
+  const tps = outputTokens / (durationMs / 1000)
+  return Number.isFinite(tps) ? tps : null
+}
+
+/** 徽标文本数值部分，如 "2.1 t/s"；100 t/s 及以上取整。 */
+export const formatUsageBadgeTps = (row: UsageTpsRow | null | undefined): string | null => {
+  const tps = usageBadgeTps(row)
+  if (tps == null) return null
+  return `${tps >= 100 ? Math.round(tps) : tps.toFixed(1)} t/s`
+}

@@ -138,6 +138,27 @@
               {{ t('usage.nativeCompactionV2') }}
             </span>
           </div>
+          <!-- 运营方定制：类型徽标下方叠放缓存率 / TPS 小徽标（图片请求不显示） -->
+          <div v-if="cacheBadgeText(row) || tpsBadgeText(row)" class="mt-1 flex flex-col items-start gap-0.5">
+            <span
+              v-if="cacheBadgeText(row)"
+              data-testid="usage-cache-rate-badge"
+              class="inline-flex items-center gap-1 whitespace-nowrap rounded bg-purple-100 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-purple-800 dark:bg-purple-900/60 dark:text-purple-200"
+              :title="cacheRateTitle(row)"
+            >
+              <Icon name="database" size="xs" class="h-3 w-3" />
+              {{ t('usage.badgeCacheRate') }} {{ cacheBadgeText(row) }}
+            </span>
+            <span
+              v-if="tpsBadgeText(row)"
+              data-testid="usage-tps-badge"
+              class="inline-flex items-center gap-1 whitespace-nowrap rounded bg-cyan-100 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-cyan-800 dark:bg-cyan-900/60 dark:text-cyan-200"
+              :title="t('usage.badgeTpsHint')"
+            >
+              <Icon name="clock" size="xs" class="h-3 w-3" />
+              {{ t('usage.badgeTps') }}: {{ tpsBadgeText(row) }}
+            </span>
+          </div>
         </template>
 
         <template #cell-billing_mode="{ row }">
@@ -578,8 +599,8 @@ import {
   tpsSeverity,
   type LatencySeverity,
 } from '@/utils/latencyHealth'
-import { formatUsageOutputTps, usageOutputTps } from '@/utils/usageTps'
-import { formatUsageCacheRate, showUsageCacheRate, usageCacheRateParts } from '@/utils/usageCacheRate'
+import { formatUsageBadgeTps, formatUsageOutputTps, usageOutputTps } from '@/utils/usageTps'
+import { formatUsageCacheRate, formatUsageCacheRatePrecise, showUsageCacheRate, usageCacheRateParts } from '@/utils/usageCacheRate'
 import {
   BILLING_MODE_TOKEN,
   getBillingModeLabel,
@@ -781,6 +802,14 @@ const formatDuration = (ms: number | null | undefined): string => {
   if (totalSec < 3600) return `${Math.floor(totalSec / 60)}m ${totalSec % 60}s`
   return `${Math.floor(totalSec / 3600)}h ${Math.floor((totalSec % 3600) / 60)}m`
 }
+
+// 行内徽标：缓存率受「缓存率展示」公开设置约束（用户端需另开向用户展示），与上游成本开关无关。
+// 图片请求（按次计费或 token 计费的图片生成/图片输出）两个徽标都不显示。
+const isImageRequestRow = (row: AdminUsageLog): boolean =>
+  isImageUsage(row) || (row.image_count ?? 0) > 0 || (row.image_output_tokens ?? 0) > 0
+const cacheBadgeText = (row: AdminUsageLog): string | null =>
+  showCacheRate.value && !isImageRequestRow(row) ? formatUsageCacheRatePrecise(row) : null
+const tpsBadgeText = (row: AdminUsageLog): string | null => (isImageRequestRow(row) ? null : formatUsageBadgeTps(row))
 
 const cacheRateTitle = (row: AdminUsageLog): string | undefined => {
   const parts = usageCacheRateParts(row)

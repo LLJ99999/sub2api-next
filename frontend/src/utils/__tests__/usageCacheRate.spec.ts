@@ -74,3 +74,12 @@ describe('cacheHitRateFromTokens', () => {
     expect(cacheHitRateFromTokens(undefined, null, undefined)).toBeNull()
   })
 })
+
+describe('formatUsageCacheRatePrecise', () => {
+  it('formats with two decimals', async () => {
+    const { formatUsageCacheRatePrecise } = await import('../usageCacheRate')
+    expect(formatUsageCacheRatePrecise({ input_tokens: 189, cache_read_tokens: 4864, cache_creation_tokens: 2 })).toBe('96.22%')
+    expect(formatUsageCacheRatePrecise({ input_tokens: 10, cache_read_tokens: 0, cache_creation_tokens: 0 })).toBe('0.00%')
+    expect(formatUsageCacheRatePrecise({ input_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0 })).toBeNull()
+  })
+})

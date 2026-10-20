@@ -14,6 +14,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { CAP_I18N_ZH, isCapSiteKey, parseCapSiteKey, readPageCspNonce } from '@/utils/capCaptcha'
 
 interface TurnstileRenderOptions {
   sitekey: string
@@ -34,6 +35,10 @@ declare global {
   interface Window {
     turnstile?: TurnstileAPI
     onTurnstileLoad?: () => void
+    CAP_CUSTOM_WASM_URL?: string
+    CAP_CUSTOM_HASHWX_URL?: string
+    CAP_SCRIPT_NONCE?: string
+    CAP_CSS_NONCE?: string
   }
 }
 
@@ -55,7 +60,7 @@ const emit = defineEmits<{
   (e: 'error'): void
 }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const loading = ref(true)
 const containerRef = ref<HTMLElement | null>(null)
 const widgetId = ref<string | null>(null)
@@ -131,7 +136,103 @@ const renderWidget = () => {
   })
 }
 
+// ---------------------------------------------------------------------------
+// 自建 Cap 验证码：站点密钥为 cap:<key> 或 cap:<base>|<key> 时启用，
+// 通过同一组 verify / expire / error 事件向父组件交付 token。
+// ---------------------------------------------------------------------------
+const capElement = ref<HTMLElement | null>(null)
+const capScriptPromises = new Map<string, Promise<void>>()
+
+const loadCapScript = (src: string): Promise<void> => {
+  if (typeof customElements !== 'undefined' && customElements.get('cap-widget')) {
+    return Promise.resolve()
+  }
+  const cached = capScriptPromises.get(src)
+  if (cached) return cached
+  const promise = new Promise<void>((resolve, reject) => {
+    const done = () => {
+      if (typeof customElements !== 'undefined' && !customElements.get('cap-widget')) {
+        customElements.whenDefined('cap-widget').then(() => resolve(), reject)
+        return
+      }
+      resolve()
+    }
+    const existing = document.querySelector<HTMLScriptElement>(`script[data-cap-widget-src="${src}"]`)
+    if (existing) {
+      existing.addEventListener('load', done, { once: true })
+      existing.addEventListener('error', () => reject(new Error('Failed to load Cap widget script')), { once: true })
+      return
+    }
+    const script = document.createElement('script')
+    script.src = src
+    script.async = true
+    script.dataset.capWidgetSrc = src
+    script.onload = done
+    script.onerror = () => {
+      capScriptPromises.delete(src)
+      reject(new Error('Failed to load Cap widget script'))
+    }
+    document.head.appendChild(script)
+  })
+  capScriptPromises.set(src, promise)
+  return promise
+}
+
+const removeCapWidget = () => {
+  if (capElement.value) {
+    capElement.value.remove()
+    capElement.value = null
+  }
+}
+
+const renderCapWidget = () => {
+  const cfg = parseCapSiteKey(props.siteKey)
+  if (!cfg || !containerRef.value) return
+  removeCapWidget()
+  containerRef.value.innerHTML = ''
+  const el = document.createElement('cap-widget')
+  el.setAttribute('data-cap-api-endpoint', cfg.apiEndpoint)
+  if (String(locale?.value ?? '').toLowerCase().startsWith('zh')) {
+    for (const [attr, label] of Object.entries(CAP_I18N_ZH)) {
+      el.setAttribute(attr, label)
+    }
+  }
+  el.addEventListener('solve', (event: Event) => {
+    const token = (event as CustomEvent<{ token?: string }>).detail?.token
+    if (token) emit('verify', token)
+  })
+  el.addEventListener('error', () => emit('error'))
+  el.addEventListener('reset', () => emit('expire'))
+  containerRef.value.appendChild(el)
+  capElement.value = el
+}
+
+const initCap = async () => {
+  const cfg = parseCapSiteKey(props.siteKey)
+  if (!cfg) {
+    console.error('Invalid Cap site key, expected cap:<key> or cap:<base>|<key>')
+    emit('error')
+    return
+  }
+  // 求解器 WASM 也从自建 Cap 资源服务加载（避免依赖 jsdelivr），运维可预先覆盖。
+  if (!window.CAP_CUSTOM_WASM_URL) window.CAP_CUSTOM_WASM_URL = cfg.wasmUrl
+  if (!window.CAP_CUSTOM_HASHWX_URL) window.CAP_CUSTOM_HASHWX_URL = cfg.hashwxUrl
+  const nonce = readPageCspNonce()
+  if (nonce) {
+    if (!window.CAP_SCRIPT_NONCE) window.CAP_SCRIPT_NONCE = nonce
+    if (!window.CAP_CSS_NONCE) window.CAP_CSS_NONCE = nonce
+  }
+  await loadCapScript(cfg.scriptSrc)
+  scriptLoaded.value = true
+  renderCapWidget()
+}
+
 const reset = () => {
+  if (isCapSiteKey(props.siteKey)) {
+    // Cap token 只能使用一次：重建组件即重新求解
+    if (capElement.value) renderCapWidget()
+    return
+  }
   if (window.turnstile && widgetId.value) {
     window.turnstile.reset(widgetId.value)
   }
@@ -146,6 +247,10 @@ onMounted(async () => {
   }
 
   try {
+    if (isCapSiteKey(props.siteKey)) {
+      await initCap()
+      return
+    }
     await loadScript()
     renderWidget()
   } catch (error) {
@@ -157,6 +262,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  removeCapWidget()
   if (window.turnstile && widgetId.value) {
     try {
       window.turnstile.remove(widgetId.value)
@@ -170,7 +276,24 @@ onUnmounted(() => {
 watch(
   () => props.siteKey,
   (newKey) => {
-    if (newKey && scriptLoaded.value) {
+    if (!newKey) return
+    if (isCapSiteKey(newKey)) {
+      if (widgetId.value && window.turnstile) {
+        try {
+          window.turnstile.remove(widgetId.value)
+        } catch {
+          // Ignore errors when removing
+        }
+        widgetId.value = null
+      }
+      void initCap().catch((error) => {
+        console.error('Failed to initialize Cap:', error)
+        emit('error')
+      })
+      return
+    }
+    removeCapWidget()
+    if (scriptLoaded.value) {
       renderWidget()
     }
   }

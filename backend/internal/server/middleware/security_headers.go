@@ -56,6 +56,8 @@ var requiredCSPDirectiveValues = []struct {
 	// 插件配置 UI 使用同源 iframe；目标响应仍必须显式放开 X-Frame-Options，
 	// 因此这里只允许 'self' 不会使其他默认 DENY 的管理/API 页面可被嵌入。
 	{"frame-src", "'self'"},
+	// 自建 Cap 验证码（cap: 前缀站点密钥）在浏览器内运行 WASM 求解器。
+	{"script-src", "'wasm-unsafe-eval'"},
 	{"script-src", CloudflareInsightsDomain},
 	{"script-src", TencentCaptchaDomain},
 	{"frame-src", TencentCaptchaDomain},
