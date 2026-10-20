@@ -160,7 +160,37 @@ func RegisterAdminRoutes(
 
 		// 操作审计日志
 		registerAuditLogRoutes(admin, h, stepUpAuth)
+
+		// 上游变动提醒 / 上游质量探测 / 公开中转快照设置
+		registerUpstreamOpsRoutes(admin, h)
 	}
+}
+
+func registerUpstreamOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	if h.Admin.UpstreamOps == nil {
+		return
+	}
+	u := h.Admin.UpstreamOps
+	changes := admin.Group("/upstream-changes")
+	{
+		changes.GET("/settings", u.GetChangeSettings)
+		changes.PUT("/settings", u.UpdateChangeSettings)
+		changes.GET("/events", u.ListChangeEvents)
+		changes.GET("/snapshots", u.ListChangeSnapshots)
+		changes.GET("/sites", u.ListChangeSites)
+	}
+	quality := admin.Group("/upstream-quality-probes")
+	{
+		quality.GET("/settings", u.GetQualitySettings)
+		quality.PUT("/settings", u.UpdateQualitySettings)
+		quality.GET("/accounts", u.ListQualityConfigs)
+		quality.GET("/accounts/:id", u.GetQualityAccount)
+		quality.PUT("/accounts/:id", u.SaveQualityAccount)
+		quality.DELETE("/accounts/:id", u.DeleteQualityAccount)
+		quality.POST("/accounts/:id/run", u.RunQualityAccount)
+	}
+	admin.GET("/public-transit/settings", u.GetTransitSettings)
+	admin.PUT("/public-transit/settings", u.UpdateTransitSettings)
 }
 
 func registerPromptAuditRoutes(admin *gin.RouterGroup, h *handler.Handlers) {

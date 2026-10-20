@@ -987,3 +987,11 @@ func BenchmarkFrontendServerServeIndexHTML(b *testing.B) {
 		server.serveIndexHTML(c)
 	}
 }
+
+func TestEmbeddedFrontendBypassesPublicTransitDiscovery(t *testing.T) {
+	require.True(t, shouldBypassEmbeddedFrontend("/.well-known/ai-transit.json"))
+	require.True(t, shouldBypassEmbeddedFrontend("/api/public/transit/v1/snapshot"))
+	// The optional page is a normal SPA route.
+	require.False(t, shouldBypassEmbeddedFrontend("/public/transit"))
+	require.False(t, shouldBypassEmbeddedFrontend("/.well-known/other.json"))
+}

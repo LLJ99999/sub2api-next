@@ -24,6 +24,8 @@ type ScheduledTestRunnerService struct {
 	// groupTests runs the Pelican group tests on the same tick; nil disables them.
 	groupTests   *PelicanGroupTestService
 	candyMonitor *ChannelMonitorV2CandyService
+	// qualityProbes runs opt-in upstream quality probes on the same tick; nil disables them.
+	qualityProbes *UpstreamQualityProbeService
 
 	qualityTrigger *quality5xxTrigger
 	triggerCancel  context.CancelFunc
@@ -117,8 +119,9 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 	s.groupTests.Cleanup(ctx, now)
 	// Group tests run beside the account plans rather than after them.
 	var groupRuns sync.WaitGroup
-	groupRuns.Add(2)
+	groupRuns.Add(3)
 	go func() { defer groupRuns.Done(); s.candyMonitor.RunDue(ctx, now) }()
+	go func() { defer groupRuns.Done(); s.qualityProbes.RunDue(ctx, now) }()
 	go func() {
 		defer groupRuns.Done()
 		s.groupTests.RunDue(ctx, now)

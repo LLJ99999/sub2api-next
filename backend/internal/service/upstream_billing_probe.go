@@ -265,6 +265,8 @@ type UpstreamBillingProbeService struct {
 	lockCache    LeaderLockCache
 	db           *sql.DB
 	instanceID   string
+	// changes records snapshot history and change events; nil disables it.
+	changes *UpstreamChangeService
 }
 
 type upstreamBillingProbeSnapshotWriter interface {
@@ -311,8 +313,10 @@ func ProvideUpstreamBillingProbeService(
 	cfg *config.Config,
 	newAPIRepo NewAPIAuthorizationRepository,
 	encryptor SecretEncryptor,
+	changes *UpstreamChangeService,
 ) *UpstreamBillingProbeService {
 	svc := NewUpstreamBillingProbeService(accountRepo, accountTestService, settingService)
+	svc.SetChangeService(changes)
 	svc.SetLeaderLock(lockCache, db)
 	svc.SetNewAPIAuthorization(newAPIRepo, encryptor, cfg != nil && cfg.Totp.EncryptionKeyConfigured)
 	startBackgroundService(cfg, svc)
@@ -359,6 +363,7 @@ func (s *UpstreamBillingProbeService) runLoop() {
 		case <-s.parentCtx.Done():
 			return
 		case <-ticker.C:
+			s.flushChangeNotifications(s.parentCtx)
 			if err := s.RunDue(s.parentCtx); err != nil {
 				logger.LegacyPrintf("service.upstream_billing_probe", "run_due_failed: err=%v", err)
 			}
@@ -910,7 +915,38 @@ func (s *UpstreamBillingProbeService) updateSnapshot(
 	if !ok {
 		return ErrUpstreamBillingProbeUnavailable
 	}
-	return writer.UpdateUpstreamBillingProbeSnapshot(ctx, account, snapshot, rateMultiplier)
+	if err := writer.UpdateUpstreamBillingProbeSnapshot(ctx, account, snapshot, rateMultiplier); err != nil {
+		return err
+	}
+	if s.changes != nil {
+		// account still holds the row read before this probe, so its extra is
+		// the previous snapshot. Observation never fails the probe.
+		s.changes.ObserveProbe(ctx, account, decodeUpstreamBillingProbeSnapshot(account.Extra), snapshot)
+	}
+	return nil
+}
+
+// SetChangeService attaches the optional snapshot history and alert recorder.
+func (s *UpstreamBillingProbeService) SetChangeService(changes *UpstreamChangeService) {
+	if s == nil {
+		return
+	}
+	s.changes = changes
+}
+
+// flushChangeNotifications runs once per cycle on one instance.
+func (s *UpstreamBillingProbeService) flushChangeNotifications(ctx context.Context) {
+	if s == nil || s.changes == nil {
+		return
+	}
+	release, acquired, err := s.tryAcquireLeaderLock(ctx, upstreamChangeFlushLockKey)
+	if err != nil || !acquired {
+		return
+	}
+	defer release()
+	if err := s.changes.FlushPending(ctx); err != nil {
+		logger.LegacyPrintf("service.upstream_billing_probe", "change_flush_failed: err=%v", err)
+	}
 }
 
 func parseUpstreamBillingProbeResponse(body []byte) (map[string]any, error) {

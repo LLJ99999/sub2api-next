@@ -19,9 +19,11 @@ import misc from './misc'
 import requestTiming from './requestTiming'
 
 import autoConfig from './autoConfig'
+import upstreamOps from './upstreamOps'
 
 export default {
   autoConfig,
+  upstreamOps,
   priorityScheduling,
   qualityOps,
   controlledExperiments,

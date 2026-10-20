@@ -763,8 +763,10 @@ func ProvideScheduledTestRunnerService(
 	rdb *redis.Client,
 	groupTests *PelicanGroupTestService,
 	monitor *ChannelMonitorV2Service,
+	qualityProbes *UpstreamQualityProbeService,
 ) *ScheduledTestRunnerService {
 	svc := NewScheduledTestRunnerService(planRepo, scheduledSvc, accountTestSvc, rateLimitSvc, cfg)
+	svc.qualityProbes = qualityProbes
 	if rdb != nil {
 		svc.qualityTrigger = &quality5xxTrigger{queue: qualityqueue.NewRedis(rdb)}
 	}
@@ -1043,6 +1045,9 @@ var ProviderSet = wire.NewSet(
 	ProvideAccountUsageService,
 	ProvideAccountTestService,
 	ProvideUpstreamBillingProbeService,
+	NewUpstreamChangeService,
+	NewUpstreamQualityProbeService,
+	NewPublicTransitService,
 	ProvideOllamaCloudUsageService,
 	ProvideOpenCodeGoUsageService,
 	ProvideSettingService,

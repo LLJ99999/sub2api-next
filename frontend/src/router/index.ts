@@ -177,6 +177,16 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/public/transit',
+    name: 'PublicTransit',
+    component: () => import('@/views/public/PublicTransitView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Public transit',
+      titleKey: 'upstreamOps.publicPage.title'
+    }
+  },
+  {
     path: '/model-plaza',
     name: 'ModelPlaza',
     component: () => import('@/views/ModelPlazaView.vue'),
@@ -565,6 +575,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/admin/token-guard', name: 'AdminTokenGuard', component: () => import('@/views/admin/ops/TokenGuardView.vue'), meta: { requiresAuth: true, requiresAdmin: true, title: 'Credential Guard', titleKey: 'tokenGuard.title', descriptionKey: 'tokenGuard.description' } },
   { path: '/admin/pelican-tests', name: 'AdminPelicanTests', component: () => import('@/views/admin/PelicanTestsView.vue'), meta: { requiresAuth: true, requiresAdmin: true, title: 'Pelican Showcase', titleKey: 'pelicanTests.title', descriptionKey: 'pelicanTests.description' } },
   { path: '/admin/token-guard-v2', name: 'AdminTokenGuardV2', component: () => import('@/views/admin/ops/TokenGuardV2View.vue'), meta: { requiresAuth: true, requiresAdmin: true, title: 'Credential Operations', titleKey: 'tokenGuardV2.title', descriptionKey: 'tokenGuardV2.description' } },
+  { path: '/admin/upstream-changes', name: 'AdminUpstreamChanges', component: () => import('@/views/admin/UpstreamChangesView.vue'), meta: { requiresAuth: true, requiresAdmin: true, title: 'Upstream changes', titleKey: 'upstreamOps.changes.title', descriptionKey: 'upstreamOps.changes.description' } },
+  { path: '/admin/upstream-quality-probes', name: 'AdminUpstreamQualityProbes', component: () => import('@/views/admin/UpstreamQualityProbesView.vue'), meta: { requiresAuth: true, requiresAdmin: true, title: 'Upstream quality probes', titleKey: 'upstreamOps.quality.title', descriptionKey: 'upstreamOps.quality.description' } },
   { path: '/admin/account-ops', name: 'AdminAccountOps', component: () => import('@/views/admin/AccountOpsView.vue'), meta: { requiresAuth: true, requiresAdmin: true, title: 'Account operations', titleKey: 'accountOps.title', descriptionKey: 'accountOps.description' } },
   {
     path: '/admin/account-quality',
