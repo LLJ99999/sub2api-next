@@ -36,7 +36,7 @@ Sub2API Next is a Sub2API edition better suited to **external API upstreams** (o
 - **Failover time budget**: caps the total retry time of a single request.
 
 The admin panel shows the cooldown reason, status code, time remaining and breaker level, with one-click restore; `upstream_relay_policy` can be toggled per account.
-→ [Upstream relay resilience](docs/upstream-relay-resilience.md)
+→ [Upstream relay resilience](docs/upstream-relay-resilience.en.md)
 
 ### 📊 Usage records and reports
 
@@ -44,13 +44,13 @@ The admin panel shows the cooldown reason, status code, time remaining and break
 - **One-click upstream cost hiding**: hides cost in the table, tooltips, stats cards and exports, handy for screenshots.
 - **Aggregated reports** by account / group / model: TTFT and TPS P50/P95, error count, revenue, upstream cost, **gross profit and margin**.
 
-→ [Usage analytics](docs/usage-analytics.md)
+→ [Usage analytics](docs/usage-analytics.en.md)
 
 ### 🔭 Upstream operations
 
-- **Rate / balance change alerts**: records upstream rate-multiplier and balance history, with merge windows, direction filters, per-account muting and notifications. → [Docs](docs/upstream-change-alerts.md)
-- **Upstream quality probes**: sends a tiny streaming request straight to an account's upstream and records TTFT, output TPS, real token usage and the model the upstream actually served. Off by default, enabled per account. → [Docs](docs/upstream-quality-probes.md)
-- **Public transit snapshot**: publishes groups, prices and availability via `/.well-known/ai-transit.json`, `/api/public/transit/v1/snapshot` and the `/public/transit` page, exposing only aggregated, anonymous data. → [Docs](docs/public-transit-snapshot.md)
+- **Rate / balance change alerts**: records upstream rate-multiplier and balance history, with merge windows, direction filters, per-account muting and notifications. → [Docs](docs/upstream-change-alerts.en.md)
+- **Upstream quality probes**: sends a tiny streaming request straight to an account's upstream and records TTFT, output TPS, real token usage and the model the upstream actually served. Off by default, enabled per account. → [Docs](docs/upstream-quality-probes.en.md)
+- **Public transit snapshot**: publishes groups, prices and availability via `/.well-known/ai-transit.json`, `/api/public/transit/v1/snapshot` and the `/public/transit` page, exposing only aggregated, anonymous data. → [Docs](docs/public-transit-snapshot.en.md)
 
 ### 🔧 Other improvements
 

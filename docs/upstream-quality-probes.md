@@ -1,3 +1,5 @@
+[简体中文](upstream-quality-probes.md) | [English](upstream-quality-probes.en.md) | [繁體中文](upstream-quality-probes.zh-TW.md)
+
 # 上游质量探测
 
 上游质量探测针对单个 API Key 账号，直接向其上游发送一个很小的流式请求，记录现有工具看不到的质量指标：首字时间（TTFT）、输出 TPS、上游返回的输入 / 输出 / 缓存 token、上游实际模型名，以及异常提示。

@@ -1,3 +1,5 @@
+[简体中文](upstream-relay-resilience.md) | [English](upstream-relay-resilience.en.md) | [繁體中文](upstream-relay-resilience.zh-TW.md)
+
 # 上游中转韧性：402 冷却、中转熔断、成功自愈、换号时间预算与全冷却兜底
 
 本文说明 P0 调度韧性改动的行为、配置与运维方式，适用于对接其他中转站 / NewAPI / Sub2API 的 API Key 账号，也覆盖所有平台通用的 402 冷却与换号预算。

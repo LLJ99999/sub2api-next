@@ -1,3 +1,5 @@
+[简体中文](public-transit-snapshot.md) | [English](public-transit-snapshot.en.md) | [繁體中文](public-transit-snapshot.zh-TW.md)
+
 # 公开中转快照（AI Transit Snapshot）
 
 公开中转快照以匿名、聚合的方式对外发布本站提供的公开分组、模型与价格、累计缓存命中率和可用性，便于导航站、比价站或其他中转站自动读取。默认关闭。

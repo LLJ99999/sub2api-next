@@ -36,7 +36,7 @@ Sub2API Next 是更適合**外接 API 上游**（其他中轉站、官方 API Ke
 - **故障轉移時間預算**：限制單次請求的總重試時長。
 
 管理端可直接看到冷卻原因、狀態碼、剩餘時間和熔斷等級，支援一鍵恢復；每個帳號可單獨開關 `upstream_relay_policy`。
-→ [上游中轉韌性說明](docs/upstream-relay-resilience.md)
+→ [上游中轉韌性說明](docs/upstream-relay-resilience.zh-TW.md)
 
 ### 📊 使用記錄與報表
 
@@ -44,13 +44,13 @@ Sub2API Next 是更適合**外接 API 上游**（其他中轉站、官方 API Ke
 - **上游成本一鍵隱藏**：表格、tooltip、統計卡、匯出同步隱藏，方便截圖。
 - **多維度彙總報表**：按帳號 / 分組 / 模型檢視 TTFT 與 TPS 的 P50/P95、錯誤數、收入、上游成本、**毛利與毛利率**。
 
-→ [使用分析說明](docs/usage-analytics.md)
+→ [使用分析說明](docs/usage-analytics.zh-TW.md)
 
 ### 🔭 上游維運
 
-- **倍率 / 餘額變化警示**：自動記錄上游倍率與餘額歷史，支援合併視窗、漲跌方向過濾、按帳號靜音，並發送通知。→ [說明](docs/upstream-change-alerts.md)
-- **上游品質實測**：按帳號直連上游發極小的流式請求，測 TTFT、輸出 TPS、真實 token 用量與上游實際模型名。預設關閉，按帳號開啟。→ [說明](docs/upstream-quality-probes.md)
-- **公開中轉快照**：透過 `/.well-known/ai-transit.json`、`/api/public/transit/v1/snapshot` 和 `/public/transit` 對外展示分組、價格與可用率，只輸出彙總後的匿名資料。→ [說明](docs/public-transit-snapshot.md)
+- **倍率 / 餘額變化警示**：自動記錄上游倍率與餘額歷史，支援合併視窗、漲跌方向過濾、按帳號靜音，並發送通知。→ [說明](docs/upstream-change-alerts.zh-TW.md)
+- **上游品質實測**：按帳號直連上游發極小的流式請求，測 TTFT、輸出 TPS、真實 token 用量與上游實際模型名。預設關閉，按帳號開啟。→ [說明](docs/upstream-quality-probes.zh-TW.md)
+- **公開中轉快照**：透過 `/.well-known/ai-transit.json`、`/api/public/transit/v1/snapshot` 和 `/public/transit` 對外展示分組、價格與可用率，只輸出彙總後的匿名資料。→ [說明](docs/public-transit-snapshot.zh-TW.md)
 
 ### 🔧 其他改進
 

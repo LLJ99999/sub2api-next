@@ -1,3 +1,5 @@
+[简体中文](usage-analytics.md) | [English](usage-analytics.en.md) | [繁體中文](usage-analytics.zh-TW.md)
+
 # 用量记录与报表：上游成本开关、TPS / 缓存命中率、聚合与毛利
 
 本文说明管理端「使用记录」页（`/admin/usage`）新增的四项能力及其口径：

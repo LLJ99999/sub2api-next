@@ -1,3 +1,5 @@
+[简体中文](upstream-change-alerts.md) | [English](upstream-change-alerts.en.md) | [繁體中文](upstream-change-alerts.zh-TW.md)
+
 # 上游倍率 / 余额变动提醒
 
 本功能把「上游计费探测」已经读到的上游分组倍率和钱包余额持久化成历史，识别倍率变化与余额跌破阈值的时刻，并可通过账号运维（Account Ops）已配置的通知渠道发出提醒。
