@@ -253,6 +253,8 @@ type Account struct {
 
 	TempUnschedulableUntil  *time.Time `json:"temp_unschedulable_until"`
 	TempUnschedulableReason string     `json:"temp_unschedulable_reason"`
+	// Cooldowns 是当前生效的可恢复冷却（原因状态码、截断的上游消息、作用域、剩余秒数、熔断级别）。
+	Cooldowns []AccountCooldown `json:"cooldowns,omitempty"`
 
 	SessionWindowStart  *time.Time `json:"session_window_start"`
 	SessionWindowEnd    *time.Time `json:"session_window_end"`
@@ -382,6 +384,8 @@ type AccountListItem struct {
 
 	TempUnschedulableUntil  *time.Time `json:"temp_unschedulable_until"`
 	TempUnschedulableReason string     `json:"temp_unschedulable_reason"`
+	// Cooldowns 是当前生效的可恢复冷却（原因状态码、截断的上游消息、作用域、剩余秒数、熔断级别）。
+	Cooldowns []AccountCooldown `json:"cooldowns,omitempty"`
 
 	SessionWindowStart  *time.Time `json:"session_window_start"`
 	SessionWindowEnd    *time.Time `json:"session_window_end"`

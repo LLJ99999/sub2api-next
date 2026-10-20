@@ -66,6 +66,9 @@
         <div class="whitespace-pre-wrap break-words">{{ account.error_message }}</div>
       </HelpTooltip>
 
+      <!-- Recoverable cooldown details + one-click restore -->
+      <AccountCooldownBadge :account="account" @recover="emit('recover-state', $event)" />
+
       <!-- Rate Limit Indicator (429) -->
       <HelpTooltip v-if="isRateLimited" class="!ml-0" width-class="w-56">
         <template #trigger>
@@ -148,6 +151,7 @@
 
 <script setup lang="ts">
 import ExcelBPSCredentialStatus from './ExcelBPSCredentialStatus.vue'
+import AccountCooldownBadge from './AccountCooldownBadge.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
@@ -164,6 +168,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (e: 'show-temp-unsched', account: Account): void
+  (e: 'recover-state', account: Account): void
 }>()
 
 const protocolEnabled = computed(() => props.globalBpsEnabled)

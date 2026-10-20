@@ -497,6 +497,28 @@ export default {
           normal: 'Quota normal'
         },
       },
+      upstreamRelayPolicy: {
+        label: 'Upstream relay circuit breaker',
+        hint: 'For API-key accounts that point at another relay / NewAPI / Sub2API: when the 429/5xx/timeout failure rate in the window crosses the threshold, the account (or model) cools down with exponential backoff; after the cooldown at most 2 trial requests go through and a success restores it automatically.'
+      },
+      cooldownInfo: {
+        badge: 'Cooling {count}',
+        title: 'Active cooldowns',
+        kinds: {
+          temp_unschedulable: 'Temporarily unschedulable',
+          rate_limit: 'Rate limited',
+          overload: 'Overloaded',
+          model_rate_limit: 'Model cooldown'
+        },
+        scopeAccount: 'Whole account',
+        scopeModel: 'Model: {model}',
+        statusCode: 'Status {code}',
+        breakerLevel: 'Breaker level L{level}',
+        breaker: 'Upstream relay breaker',
+        remaining: '{time} left',
+        recover: 'Restore now',
+        recovering: 'Restoring…'
+      },
       tempUnschedulable: {
         title: 'Temp Unschedulable',
         statusTitle: 'Temp Unschedulable Status',

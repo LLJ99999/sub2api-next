@@ -1354,6 +1354,20 @@ export interface ExcelBPSCredentialState {
  requires_manual_resume?: boolean
 }
 
+export type AccountCooldownKind = 'temp_unschedulable' | 'rate_limit' | 'overload' | 'model_rate_limit'
+
+export interface AccountCooldown {
+  kind: AccountCooldownKind
+  scope: 'account' | 'model'
+  model?: string
+  status_code?: number
+  message?: string
+  keyword?: string
+  breaker_level?: number
+  until: string
+  remaining_seconds: number
+}
+
 export interface Account {
  excel_bps_credential_state?: ExcelBPSCredentialState
   id: number
@@ -1443,6 +1457,8 @@ export interface Account {
   overload_until: string | null
   temp_unschedulable_until: string | null
   temp_unschedulable_reason: string | null
+  // Active recoverable cooldowns derived by the backend (admin only)
+  cooldowns?: AccountCooldown[]
 
   // Session window fields (5-hour window)
   session_window_start: string | null

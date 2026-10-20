@@ -545,6 +545,28 @@ export default {
         viewTempUnschedDetails: '查看临时不可调度详情',
         tempUnschedulableUntil: '预计 {time} 恢复'
       },
+      upstreamRelayPolicy: {
+        label: '上游中转熔断策略',
+        hint: '适用于对接其他中转站 / NewAPI / Sub2API 的 API Key 账号：统计窗口内 429/5xx/超时失败率超阈值时按指数退避冷却（可按模型隔离），冷却结束后半开放行最多 2 个试探请求，成功即自动恢复。'
+      },
+      cooldownInfo: {
+        badge: '冷却 {count}',
+        title: '当前冷却',
+        kinds: {
+          temp_unschedulable: '临时不可调度',
+          rate_limit: '限流',
+          overload: '过载',
+          model_rate_limit: '模型冷却'
+        },
+        scopeAccount: '整个账号',
+        scopeModel: '模型：{model}',
+        statusCode: '状态码 {code}',
+        breakerLevel: '熔断级别 L{level}',
+        breaker: '上游中转熔断',
+        remaining: '剩余 {time}',
+        recover: '一键恢复',
+        recovering: '恢复中…'
+      },
       tempUnschedulable: {
         title: '临时不可调度',
         statusTitle: '临时不可调度状态',

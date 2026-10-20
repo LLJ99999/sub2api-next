@@ -1886,6 +1886,41 @@ describe('EditAccountModal', () => {
     )
   })
 
+  it('toggles the upstream relay circuit-breaker policy for API-key accounts', async () => {
+    const account = buildAccount()
+    account.extra = { openai_compact_mode: 'force_on' }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const untouched = mountModal(account)
+    expect(untouched.get('[data-testid="upstream-relay-policy"]').attributes('aria-checked')).toBe('false')
+    await untouched.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('upstream_relay_policy')
+
+    updateAccountMock.mockClear()
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="upstream-relay-policy"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({
+      openai_compact_mode: 'force_on',
+      upstream_relay_policy: true
+    })
+
+    updateAccountMock.mockClear()
+    const enabled = buildAccount()
+    enabled.extra = { upstream_relay_policy: true }
+    const off = mountModal(enabled)
+    expect(off.get('[data-testid="upstream-relay-policy"]').attributes('aria-checked')).toBe('true')
+    await off.get('[data-testid="upstream-relay-policy"]').trigger('click')
+    await flushPromises()
+    await off.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.upstream_relay_policy).toBe(false)
+  })
+
   it('exposes the upstream billing auto-probe toggle for non-OpenAI API-key accounts', async () => {
     // 探测已放宽到全部 API-key 平台：grok 账号同样能开启并保存。
     const account = buildAccount()

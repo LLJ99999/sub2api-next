@@ -2359,6 +2359,23 @@
         />
       </div>
 
+      <div
+        v-if="account?.type === 'apikey'"
+        class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div>
+          <label class="input-label mb-0">{{ t('admin.accounts.upstreamRelayPolicy.label') }}</label>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.upstreamRelayPolicy.hint') }}
+          </p>
+        </div>
+        <Toggle
+          v-model="upstreamRelayPolicyEnabled"
+          data-testid="upstream-relay-policy"
+          :aria-label="t('admin.accounts.upstreamRelayPolicy.label')"
+        />
+      </div>
+
       <OllamaCloudUsageSettings
         v-if="account?.ollama_cloud_usage?.eligible"
         :account="account"
@@ -4074,6 +4091,7 @@ const autoResetCreditEnabled = ref(false)
 const autoResetCredit5hThreshold = ref(100)
 const autoResetCredit7dThreshold = ref(100)
 const upstreamBillingAutoProbeEnabled = ref(false)
+const upstreamRelayPolicyEnabled = ref(false)
 const upstreamBillingRateSyncEnabled = ref(false)
 const isNewAPIUpstream = computed(() => props.account?.extra?.upstream_billing_provider === 'new_api')
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
@@ -4082,6 +4100,11 @@ const upstreamRequestIdHeader = ref('')
 const readUpstreamRequestIdHeader = (extra: unknown): string => {
   const value = (extra as Record<string, unknown> | undefined)?.upstream_request_id_header
   return typeof value === 'string' ? value : ''
+}
+// 上游中转熔断策略（extra.upstream_relay_policy，仅 API Key 账号）；与后端 IsUpstreamRelayPolicyEnabled 一致。
+const readUpstreamRelayPolicy = (extra: unknown): boolean => {
+  const value = (extra as Record<string, unknown> | undefined)?.upstream_relay_policy
+  return value === true || (typeof value === 'string' && value.trim().toLowerCase() === 'true')
 }
 const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
 const antigravityProjectId = ref('')
@@ -4689,6 +4712,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	autoResetCredit7dThreshold.value =
 		typeof extra?.auto_reset_credit_7d_threshold === 'number' ? extra.auto_reset_credit_7d_threshold * 100 : 100
 	upstreamBillingAutoProbeEnabled.value = extra?.upstream_billing_probe_enabled === true
+  upstreamRelayPolicyEnabled.value = readUpstreamRelayPolicy(extra)
   upstreamBillingRateSyncEnabled.value =
     extra?.upstream_billing_provider !== 'new_api' && upstreamBillingAutoProbeEnabled.value && extra?.upstream_billing_rate_sync_enabled === true
 
@@ -6628,6 +6652,14 @@ const handleSubmit = async () => {
         delete newExtra.upstream_request_id_header
       }
       updatePayload.extra = newExtra
+    }
+
+    // 上游中转熔断开关只在改动时写回；关闭时显式写 false，兼容 extra 合并语义。
+    if (props.account.type === 'apikey' && upstreamRelayPolicyEnabled.value !== readUpstreamRelayPolicy(props.account.extra)) {
+      updatePayload.extra = {
+        ...((updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}),
+        upstream_relay_policy: upstreamRelayPolicyEnabled.value
+      }
     }
 
     if (!isValidAccountCostMultiplier(costMultiplier.value)) {
