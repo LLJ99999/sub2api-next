@@ -56,7 +56,7 @@ func (r *relayRepoStub) ClearModelRateLimitScope(ctx context.Context, id int64, 
 
 type relayTestClock struct{ now time.Time }
 
-func (c *relayTestClock) Now() time.Time         { return c.now }
+func (c *relayTestClock) Now() time.Time          { return c.now }
 func (c *relayTestClock) Advance(d time.Duration) { c.now = c.now.Add(d) }
 
 func newRelayTestService(t *testing.T) (*RateLimitService, *relayRepoStub, *relayTestClock) {

@@ -27,6 +27,12 @@ type systemOnePolicyAccountRepo struct {
 	rateLimitedCalls int
 	overloadedCalls  int
 	errorCalls       int
+	tempUnschedCalls int
+}
+
+func (r *systemOnePolicyAccountRepo) SetTempUnschedulable(context.Context, int64, time.Time, string) error {
+	r.tempUnschedCalls++
+	return nil
 }
 
 func (r *systemOnePolicyAccountRepo) GetByID(context.Context, int64) (*Account, error) {
@@ -276,11 +282,13 @@ func TestForwardSystemOneRequestErrorsNeverTouchAccountState(t *testing.T) {
 
 func TestForwardSystemOneAccountLevelFailuresFailOver(t *testing.T) {
 	for _, tc := range []struct {
-		name      string
-		status    int
-		wantError int
+		name       string
+		status     int
+		wantError  int
+		wantCooled int
 	}{
-		{name: "payment required", status: http.StatusPaymentRequired, wantError: 1},
+		// 402 is a recoverable cooldown (temp-unschedulable), not a permanent error.
+		{name: "payment required", status: http.StatusPaymentRequired, wantCooled: 1},
 		{name: "forbidden", status: http.StatusForbidden, wantError: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -296,6 +304,7 @@ func TestForwardSystemOneAccountLevelFailuresFailOver(t *testing.T) {
 			require.True(t, failoverErr.ShouldRetryNextAccount())
 			require.Equal(t, tc.status, failoverErr.StatusCode)
 			require.Equal(t, tc.wantError, repo.errorCalls)
+			require.Equal(t, tc.wantCooled, repo.tempUnschedCalls)
 			require.Equal(t, "failover", systemOneOpsEvents(t, c)[0].Kind)
 		})
 	}

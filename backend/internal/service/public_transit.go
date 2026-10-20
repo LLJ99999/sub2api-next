@@ -284,7 +284,11 @@ func (s *PublicTransitService) Snapshot(ctx context.Context) (*PublicTransitSnap
 		}
 		return nil, err
 	}
-	return value.(*PublicTransitSnapshot), nil
+	snapshot, ok := value.(*PublicTransitSnapshot)
+	if !ok {
+		return nil, fmt.Errorf("public transit: unexpected snapshot type %T", value)
+	}
+	return snapshot, nil
 }
 
 func (s *PublicTransitService) build(ctx context.Context, cfg PublicTransitSettings) (*PublicTransitSnapshot, error) {

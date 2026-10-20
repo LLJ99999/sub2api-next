@@ -148,7 +148,7 @@ type UpstreamQualityProbeService struct {
 	settings    SettingRepository
 	now         func() time.Time
 	// send is replaceable in tests.
-	send func(ctx context.Context, account *Account, req *http.Request, proxyURL string) (*http.Response, error)
+	send  func(ctx context.Context, account *Account, req *http.Request, proxyURL string) (*http.Response, error)
 	runMu sync.Mutex
 }
 
@@ -398,7 +398,7 @@ func buildUpstreamQualityProbeRequest(protocol, model, canary string) upstreamQu
 		payload = map[string]any{
 			"model": model, "max_tokens": upstreamQualityProbeMaxTokens, "stream": true,
 			"stream_options": map[string]any{"include_usage": true},
-			"messages": []map[string]any{{"role": "system", "content": system}, {"role": "user", "content": user}},
+			"messages":       []map[string]any{{"role": "system", "content": system}, {"role": "user", "content": user}},
 			"tools": []map[string]any{{"type": "function", "function": map[string]any{
 				"name": canary, "description": toolDesc,
 				"parameters": map[string]any{"type": "object", "properties": map[string]any{}},
@@ -497,7 +497,7 @@ func parseQualityChatEvent(m *upstreamQualityStreamMetrics, event map[string]any
 			}
 			if text, _ := delta["content"].(string); text != "" {
 				markFirst()
-				m.text.WriteString(text)
+				_, _ = m.text.WriteString(text)
 			}
 			if r, _ := delta["reasoning_content"].(string); r != "" {
 				markFirst()
@@ -580,7 +580,7 @@ func parseQualityMessagesEvent(m *upstreamQualityStreamMetrics, event map[string
 		case "text_delta":
 			if text, _ := delta["text"].(string); text != "" {
 				markFirst()
-				m.text.WriteString(text)
+				_, _ = m.text.WriteString(text)
 			}
 		case "thinking_delta", "input_json_delta":
 			markFirst()

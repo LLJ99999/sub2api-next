@@ -146,7 +146,9 @@ func (n *upstreamChangeFakeNotifier) BroadcastOpsNotification(_ context.Context,
 	n.sent = append(n.sent, msg)
 	return 1, nil
 }
-func (n *upstreamChangeFakeNotifier) HasBalanceRule(_ context.Context, id int64) bool { return n.ruleIDs[id] }
+func (n *upstreamChangeFakeNotifier) HasBalanceRule(_ context.Context, id int64) bool {
+	return n.ruleIDs[id]
+}
 
 func upstreamChangeTestService(t *testing.T, settings UpstreamChangeAlertSettings) (*UpstreamChangeService, *upstreamChangeMemRepo, *upstreamChangeFakeNotifier, *time.Time) {
 	t.Helper()

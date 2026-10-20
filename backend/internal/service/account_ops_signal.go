@@ -92,7 +92,7 @@ func classifyAccountOpsFailure(platform string, status int, headers http.Header,
 	// HTTP 402 Payment Required without a more specific signal: the upstream
 	// relay/key ran out of balance. OpenAI's deactivated workspace is not a
 	// balance problem and stays unclassified.
-	if status == http.StatusPaymentRequired && !(platform == PlatformOpenAI && strings.EqualFold(code, "deactivated_workspace")) &&
+	if status == http.StatusPaymentRequired && (platform != PlatformOpenAI || !strings.EqualFold(code, "deactivated_workspace")) &&
 		!strings.Contains(string(body), "deactivated_workspace") {
 		return "balance_low", "payment_required_402"
 	}

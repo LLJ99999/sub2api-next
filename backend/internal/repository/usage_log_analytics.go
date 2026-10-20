@@ -236,8 +236,8 @@ func scanUsageAnalyticsRows(rows *sql.Rows, hasID bool, result *usagestats.Usage
 	}()
 	for rows.Next() {
 		var (
-			isTotal                          int
-			row                              usagestats.UsageAnalyticsRow
+			isTotal                           int
+			row                               usagestats.UsageAnalyticsRow
 			cacheRate, p50, p95, tps50, tps95 sql.NullFloat64
 		)
 		if err = rows.Scan(
