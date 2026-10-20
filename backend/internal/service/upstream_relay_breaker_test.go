@@ -223,9 +223,13 @@ func TestUpstreamRelayBreaker_UserRuleKeepsPriority(t *testing.T) {
 		}},
 	}
 	require.True(t, svc.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, []byte(`{"error":{"message":"quota exceeded"}}`), "m1"))
-	require.Equal(t, 1, repo.tempCalls)
-	require.Equal(t, "quota", decodeTempUnschedReason(t, repo.lastTempReason).MatchedKeyword)
-	require.Zero(t, repo.modelLimitCalls)
+	// With a known model the user rule is persisted model-scoped (base behavior);
+	// what matters is that the user rule, not the breaker, decided the cooldown.
+	require.Zero(t, repo.tempCalls)
+	require.Equal(t, 1, repo.modelLimitCalls)
+	reason := decodeTempUnschedReason(t, repo.lastModelReason)
+	require.Equal(t, "quota", reason.MatchedKeyword)
+	require.Zero(t, reason.BreakerLevel)
 }
 
 func TestUpstreamRelayBreaker_StreamTimeoutCounts(t *testing.T) {

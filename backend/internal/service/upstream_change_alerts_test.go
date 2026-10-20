@@ -315,11 +315,15 @@ func TestUpstreamChangeNetZeroDirectionFilterAndMute(t *testing.T) {
 	require.NoError(t, svc.FlushPending(context.Background()))
 	require.Empty(t, notifier.sent)
 
-	// Muted account never notifies.
+	// Muted account never notifies. Muted events are only persisted when history
+	// recording is on (without history only pending events are stored).
 	settings.MutedAccountIDs = []int64{account.ID}
+	settings.RecordHistory = true
 	_, err := svc.UpdateSettings(context.Background(), settings)
 	require.NoError(t, err)
 	svc.ObserveProbe(context.Background(), account, upstreamTestRateSnapshot(*now, 0.8, nil), upstreamTestRateSnapshot(*now, 2.0, nil))
+	require.NoError(t, svc.FlushPending(context.Background()))
+	require.Empty(t, notifier.sent)
 	states := repo.states()
 	require.Equal(t, UpstreamChangeNotifyMuted, states[len(states)-1])
 }

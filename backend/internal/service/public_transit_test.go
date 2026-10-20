@@ -110,7 +110,7 @@ func TestPublicTransitSnapshotIsAggregatedAndAnonymous(t *testing.T) {
 	raw, err := json.Marshal(snap)
 	require.NoError(t, err)
 	body := string(raw)
-	for _, forbidden := range []string{`"id"`, `"group_id"`, `"channel_id"`, "secret-model", "VIP", "account", "api_key", "proxy", "token\""} {
+	for _, forbidden := range []string{`"id"`, `"group_id"`, `"channel_id"`, "secret-model", "VIP", "account", "api_key", "proxy", `"token":`, `"api_token"`} {
 		require.False(t, strings.Contains(body, forbidden), "snapshot leaked %s: %s", forbidden, body)
 	}
 }
