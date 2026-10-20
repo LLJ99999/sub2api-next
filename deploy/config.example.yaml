@@ -251,6 +251,19 @@ gateway:
     #     region: us
     # Inject SUB2API_EGRESS_US_PROXY_URL via Secret/EnvironmentFile, for example
     # socks5h://127.0.0.1:11080 (SSH SOCKS tunnel terminating on a US host).
+  # Total failover (account switching) time budget per request in seconds, 0 = unlimited.
+  # Once exceeded the gateway stops switching accounts and returns the last upstream error.
+  # 单次请求 failover（换号）总时间预算（秒），0 表示不限制；超出后不再换号，直接返回最后一次上游错误。
+  failover_time_budget_seconds: 0
+  # All-cooled fallback: when every candidate API-key account is unavailable only because it is
+  # cooling down (rate limit / overload / temp-unschedulable / relay breaker / model cooldown),
+  # let one probe request through to the account whose cooldown ends first instead of returning 503.
+  # 全冷却兜底：候选 API Key 账号仅因冷却全部不可用时，放行一次探测请求到最早恢复的账号，而不是直接 503。
+  cooldown_fallback:
+    enabled: true
+    # Minimum interval between two probes per group/platform/model (seconds, cross-instance Redis lock)
+    # 同一分组/平台/模型两次兜底探测的最小间隔（秒，跨实例 Redis 锁）
+    probe_interval_seconds: 10
   # Minimum max_output_tokens when converting Chat Completions or Anthropic requests to Responses (minimum 16, default 128)
   # Chat Completions 或 Anthropic 请求转换为 Responses 时的最小 max_output_tokens（最小 16，默认 128）
   min_output_tokens: 128
@@ -1148,6 +1161,32 @@ rate_limit:
   # Cooldown time (in minutes) when upstream returns 529 (overloaded)
   # 上游返回 529（过载）时的冷却时间（分钟）
   overload_cooldown_minutes: 10
+  # Recoverable cooldown (minutes) when upstream returns 402 (insufficient balance / billing).
+  # OpenAI deactivated_workspace is still marked as a permanent error.
+  # 上游返回 402（余额不足/计费问题）时的可恢复临时停调时长（分钟）；OpenAI deactivated_workspace 仍永久标记 error。
+  payment_required_402_cooldown_minutes: 30
+  # Upstream relay circuit breaker, only for API-key accounts with extra.upstream_relay_policy=true
+  # (accounts pointing at another relay / NewAPI / Sub2API). See docs/upstream-relay-resilience.md.
+  # 上游中转站熔断（仅对开启 extra.upstream_relay_policy 的 API Key 账号生效），详见 docs/upstream-relay-resilience.md。
+  upstream_relay:
+    # Sliding window for the failure rate (seconds, shared across instances via Redis)
+    # 失败率统计滑动窗口（秒，Redis 跨实例共享）
+    window_seconds: 60
+    # Minimum failures (429/5xx/timeout) in the window before the breaker can trip
+    # 窗口内触发熔断所需的最少失败次数（429/5xx/超时）
+    min_failures: 5
+    # Failure rate threshold in percent (1-100)
+    # 失败率阈值（百分比，1-100）
+    failure_rate_percent: 50
+    # Exponential backoff cap (seconds); ladder is 5s, 15s, 60s, 300s, then doubling
+    # 指数退避冷却上限（秒）；阶梯为 5s、15s、60s、300s，之后翻倍
+    max_cooldown_seconds: 600
+    # How long the backoff level is kept without a new trip (seconds)
+    # 无新熔断时退避级别的保留时长（秒），过期后从第一级重新开始
+    level_reset_seconds: 1800
+    # Cooldown scope: model (default, only the failing model) or account
+    # 冷却粒度：model（默认，仅冷却出错模型）或 account（整个账号）
+    scope: model
 
 # =============================================================================
 # Local OAuth Transport Plugins (Optional)
