@@ -13,7 +13,9 @@
 [![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg)](https://redis.io/)
 [![License](https://img.shields.io/badge/License-LGPL--3.0-blue.svg)](LICENSE)
 
-Maintained by [api.zhigeng.io](https://api.zhigeng.io/) · [中文](README.md) | English
+Maintained by [api.zhigeng.io](https://api.zhigeng.io/)
+
+[简体中文](README.md) | English | [繁體中文](README_TW.md)
 
 </div>
 
