@@ -254,3 +254,45 @@ func (c *tempUnschedCache) TryAcquireCooldownFallbackProbe(ctx context.Context, 
 	}
 	return c.rdb.SetNX(ctx, cooldownFallbackProbePrefix+key, "1", ttl).Result()
 }
+
+var _ service.UpstreamRelayHalfOpenStore = (*tempUnschedCache)(nil)
+
+const upstreamRelayHalfOpenPrefix = "upstream_relay_half_open:"
+
+var upstreamRelayHalfOpenAcquireScript = redis.NewScript(`
+	local count = redis.call('INCR', KEYS[1])
+	if count == 1 then
+		redis.call('PEXPIRE', KEYS[1], tonumber(ARGV[2]))
+	end
+	if count > tonumber(ARGV[1]) then
+		redis.call('DECR', KEYS[1])
+		return 0
+	end
+	return 1
+`)
+
+func upstreamRelayHalfOpenKey(accountID int64, scope string) string {
+	return fmt.Sprintf("%s{%d|%s}", upstreamRelayHalfOpenPrefix, accountID, scope)
+}
+
+// TryAcquireUpstreamRelayHalfOpenTrial admits at most limit concurrent
+// half-open trial requests per account/scope until ttl or a reset.
+func (c *tempUnschedCache) TryAcquireUpstreamRelayHalfOpenTrial(ctx context.Context, accountID int64, scope string, limit int, ttl time.Duration) (bool, error) {
+	if limit < 1 {
+		limit = 1
+	}
+	ttlMS := ttl.Milliseconds()
+	if ttlMS < 1000 {
+		ttlMS = 1000
+	}
+	ok, err := upstreamRelayHalfOpenAcquireScript.Run(ctx, c.rdb, []string{upstreamRelayHalfOpenKey(accountID, scope)}, limit, ttlMS).Int64()
+	if err != nil {
+		return false, fmt.Errorf("acquire upstream relay half-open trial: %w", err)
+	}
+	return ok == 1, nil
+}
+
+// ResetUpstreamRelayHalfOpenTrials clears the trial counter.
+func (c *tempUnschedCache) ResetUpstreamRelayHalfOpenTrials(ctx context.Context, accountID int64, scope string) error {
+	return c.rdb.Del(ctx, upstreamRelayHalfOpenKey(accountID, scope)).Err()
+}

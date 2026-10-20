@@ -2419,7 +2419,16 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
 ) (selection *AccountSelectionResult, decision OpenAIAccountScheduleDecision, err error) {
-	selection, decision, err = s.selectAccountWithSchedulerFailOpen(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+	// previous_response 续链必须命中原账号，不参与半开限流重选。
+	halfOpenGate := s.rateLimitService
+	if previousResponseID != "" {
+		halfOpenGate = nil
+	}
+	selection, err = admitHalfOpenSelection(ctx, halfOpenGate, requestedModel, excludedIDs, func(excluded map[int64]struct{}) (*AccountSelectionResult, error) {
+		var selErr error
+		selection, decision, selErr = s.selectAccountWithSchedulerFailOpen(ctx, groupID, previousResponseID, sessionHash, requestedModel, excluded, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+		return selection, selErr
+	})
 	if err == nil || !shouldTryCooldownFallback(ctx, err) {
 		return selection, decision, err
 	}

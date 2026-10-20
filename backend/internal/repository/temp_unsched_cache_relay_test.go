@@ -100,3 +100,35 @@ func TestCooldownFallbackProbeLock(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 }
+
+func TestUpstreamRelayHalfOpenTrialCap(t *testing.T) {
+	server, store, _ := newRelayStoreForTest(t)
+	halfOpen, ok := store.(service.UpstreamRelayHalfOpenStore)
+	require.True(t, ok)
+	ctx := context.Background()
+	for i := 0; i < 2; i++ {
+		admitted, err := halfOpen.TryAcquireUpstreamRelayHalfOpenTrial(ctx, 9, "account", 2, 30*time.Second)
+		require.NoError(t, err)
+		require.True(t, admitted)
+	}
+	admitted, err := halfOpen.TryAcquireUpstreamRelayHalfOpenTrial(ctx, 9, "account", 2, 30*time.Second)
+	require.NoError(t, err)
+	require.False(t, admitted)
+
+	// Other scopes are independent.
+	admitted, err = halfOpen.TryAcquireUpstreamRelayHalfOpenTrial(ctx, 9, "model:gpt-4o", 2, 30*time.Second)
+	require.NoError(t, err)
+	require.True(t, admitted)
+
+	require.NoError(t, halfOpen.ResetUpstreamRelayHalfOpenTrials(ctx, 9, "account"))
+	admitted, err = halfOpen.TryAcquireUpstreamRelayHalfOpenTrial(ctx, 9, "account", 2, 30*time.Second)
+	require.NoError(t, err)
+	require.True(t, admitted)
+
+	server.FastForward(31 * time.Second)
+	for i := 0; i < 2; i++ {
+		admitted, err = halfOpen.TryAcquireUpstreamRelayHalfOpenTrial(ctx, 9, "account", 2, 30*time.Second)
+		require.NoError(t, err)
+		require.True(t, admitted)
+	}
+}

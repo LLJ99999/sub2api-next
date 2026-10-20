@@ -214,6 +214,8 @@ func (s *RateLimitService) observeUpstreamRelayFailure(ctx context.Context, acco
 		slog.Warn("upstream_relay_breaker_trip_failed", "account_id", account.ID, "scope", scope, "error", err)
 		return false
 	}
+	// The trip resolves any half-open trial in flight for this scope.
+	s.resetUpstreamRelayHalfOpen(ctx, account.ID, scope)
 	cooldown := upstreamRelayCooldownForLevel(level, settings.MaxCooldown)
 	now := time.Now()
 	until := now.Add(cooldown)
@@ -307,15 +309,17 @@ func (s *RateLimitService) observeUpstreamRelaySuccess(ctx context.Context, acco
 				continue
 			}
 			slog.Info("upstream_relay_breaker_closed", "account_id", account.ID, "scope", scope)
+			s.resetUpstreamRelayHalfOpen(ctx, account.ID, scope)
 		}
 	}
 }
 
 // localUpstreamRelayBreakerStore is the single-process fallback store.
 type localUpstreamRelayBreakerStore struct {
-	mu     sync.Mutex
-	now    func() time.Time
-	states map[string]*localUpstreamRelayState
+	mu       sync.Mutex
+	now      func() time.Time
+	states   map[string]*localUpstreamRelayState
+	halfOpen localUpstreamRelayHalfOpen
 }
 
 type localUpstreamRelayState struct {
