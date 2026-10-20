@@ -64,6 +64,26 @@ jobs:
       - name: Frontend typecheck and critical vitest
         run: make test-frontend
 
+  wire-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: true
+          cache-dependency-path: backend/go.sum
+      - name: Regenerate wire_gen.go
+        working-directory: backend/cmd/server
+        run: go run -mod=mod github.com/google/wire/cmd/wire
+      - name: Ensure wire_gen.go is up to date
+        run: |
+          if ! git diff --exit-code -- backend/cmd/server/wire_gen.go; then
+            echo "::error file=backend/cmd/server/wire_gen.go::wire_gen.go is stale; run 'go generate ./cmd/server' in backend and commit the result"
+            exit 1
+          fi
+
   golangci-lint:
     runs-on: ubuntu-latest
     steps:

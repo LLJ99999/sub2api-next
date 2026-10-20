@@ -11,15 +11,18 @@
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
 
 
-**Sub2API fork maintained by tosky.io**
+**Sub2API Next — Sub2API fork maintained by [api.zhigeng.io](https://api.zhigeng.io/)**
 
-[Releases](https://github.com/ranxi2001/sub2api/releases) · [User documentation](https://tosky.io/docs/)
+[Repository](https://github.com/LLJ99999/sub2api-next) · [Issues](https://github.com/LLJ99999/sub2api-next/issues)
 
 Based on [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api), with selected upstream updates and independently maintained features. The default branch is `production`.
 
 [中文（默认）](README.md) | English | [日本語](README_JA.md)
 
 </div>
+
+> **Note:** This translation is inherited from upstream `ranxi2001/sub2api`. For what Sub2API Next adds (relay circuit breaker, 402 cooldown, cost/margin analytics, upstream ops), see the Chinese [README.md](README.md).
+
 
 ## ⚠️ Important Notice
 

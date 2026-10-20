@@ -1,68 +1,76 @@
 <div align="center">
 
-<img src="assets/logo-icon.png" alt="Sub2API Logo" width="128" />
+<img src="assets/logo.svg" alt="Sub2API Logo" width="128" />
 
-# Sub2API
+# Sub2API Next
 
+[![CI](https://github.com/LLJ99999/sub2api-next/actions/workflows/backend-ci.yml/badge.svg?branch=main)](https://github.com/LLJ99999/sub2api-next/actions/workflows/backend-ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.27.2-00ADD8.svg)](https://golang.org/)
 [![Vue](https://img.shields.io/badge/Vue-3.4+-4FC08D.svg)](https://vuejs.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791.svg)](https://www.postgresql.org/)
 [![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg)](https://redis.io/)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
+[![License](https://img.shields.io/badge/License-LGPL--3.0-blue.svg)](LICENSE)
 
+**[api.zhigeng.io](https://api.zhigeng.io/) 维护的 Sub2API 分支**
 
-**tosky.io 维护的 Sub2API 独立分支**
+面向「外接中转来水」场景
 
-按需同步上游更新，扩展实用功能，独立发布生产版本。
-
-[平台](https://tosky.io/) · [使用文档](https://tosky.io/docs/) · [版本下载](https://github.com/ranxi2001/sub2api/releases) · [问题反馈](https://github.com/ranxi2001/sub2api/issues)
-
-中文 | [English](README_EN.md) | [日本語](README_JA.md)
+更稳的上游调度 · 看得清的成本与毛利 · 可观测的上游运维
 
 </div>
 
-## 社区交流群
+## 这是什么
 
-欢迎正在部署、使用或维护 Sub2API 的朋友加入 QQ 群「中转技术交流」（群号 **1004036018**），交流部署实践、协议兼容、出口代理和功能改进。也欢迎参与问题复现、测试、文档补充和 Pull Request，一起维护这个独立分支。
+Sub2API Next 由 [api.zhigeng.io](https://api.zhigeng.io/) 维护，基于 [ranxi2001/sub2api](https://github.com/ranxi2001/sub2api)（其本身为 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) 的分支）继续演进，保留全部账号池能力（OAuth、质量运维、Mihomo 出口、Excel / BPS 等），重点补齐**上游大量来自其他中转站**时的调度韧性、成本核算和上游运维。
 
-<table>
-<tr>
-<td align="center" width="50%">
-  <img src="assets/community/qq-relay-tech-group.png" alt="QQ 群：中转技术交流，群号 1004036018" width="71%" />
-  <br />
-  加入 QQ 群「中转技术交流」
-</td>
-<td align="center" width="50%">
-  <img src="assets/community/coffee-reward.png" alt="支付宝和微信赞赏码：如果帮到大家可以打赏咖啡" width="100%" />
-  <br />
-  如果帮到大家可以打赏咖啡！
-</td>
-</tr>
-</table>
+血缘关系：`Wei-Shaw/sub2api` → `ranxi2001/sub2api` → `LLJ99999/sub2api-next`
 
-二维码长期有效。需要长期留档、报告问题或讨论具体改动时，请使用 [Issues](https://github.com/ranxi2001/sub2api/issues)。
+## 相比上游新增
+
+### 调度与故障处理
+
+- **402 可恢复冷却**：余额不足等 HTTP 402 默认冷却 30 分钟后自动恢复，池模式同样生效；OpenAI `deactivated_workspace` 仍永久停用。
+- **外接中转熔断器**：Redis 滑动窗口统计、模型级冷却、指数退避、半开状态最多 2 个探测请求，取代"一错就临时禁用"。
+- **成功自愈**：API Key 账号请求成功后自动清除残留冷却。
+- **全冷却兜底**：所有候选账号都在冷却时执行受控半开探测，而不是直接返回 503。
+- **故障转移时间预算**：限制单次请求的总重试时长。
+- **冷却可见与一键恢复**：管理端显示冷却原因、状态码、剩余时间和熔断等级；账号编辑可开关 `upstream_relay_policy`。
+
+详见 [上游中转韧性](docs/upstream-relay-resilience.md)。
+
+### 使用记录与报表
+
+- **上游成本显隐开关**：一键隐藏表格、tooltip、统计卡和导出中的全部成本信息，方便截图分享。
+- **TPS / 缓存命中率**独立列，支持服务端排序；类型徽章下同时显示缓存率和 TPS。
+- **聚合分析**：按账号 / 分组 / 模型统计 TTFT 与 TPS 的 P50/P95、错误数、收入、上游成本、毛利与毛利率。
+
+详见 [使用分析](docs/usage-analytics.md)。
+
+### 上游运维
+
+- **倍率 / 余额历史与告警**：记录上游倍率和余额变化，支持合并窗口、方向过滤、静音和通知推送。[说明](docs/upstream-change-alerts.md)
+- **公开中转快照**：`/.well-known/ai-transit.json`、`/api/public/transit/v1/snapshot` 和 `/public/transit` 页面，只输出聚合、匿名的数据。[说明](docs/public-transit-snapshot.md)
+- **上游质量实测**：按账号直连上游发送极小的流式请求，记录 TTFT、输出 TPS、上游 token 用量、实际模型名和异常提示（默认关闭，按账号开启）。[说明](docs/upstream-quality-probes.md)
+
+### 其他
+
+- **Cap 自建验证码**：`cap:<key>` 或 `cap:<base>|<key>`；CSP 已加入 `'wasm-unsafe-eval'`。
+- **监控分组排序**：按平台顺序 → `sort_order` → 请求量。
+- **缓存率口径修正**：零缓存请求不计入监控缓存率分母，Token / TPM 统计不受影响；附 [重算 SQL](docs/sql/channel_monitor_v2_recompute_cache.sql)。
+
+新增数据库迁移：`310`（上游变化历史）、`311`（质量实测）、`320`（缓存率口径），升级时自动执行。
 
 ## 快速开始
 
-新人部署、官方版替换、Excel / BPS 配置和质量运维步骤，请阅读[新人入门文档](docs/新人入门.md)。
+部署方式与上游一致，参见 [部署说明](deploy/README.md) 和 [新人入门](docs/新人入门.md)。从上游版本升级时直接替换二进制或镜像，启动时会自动执行新增迁移，建议先备份数据库。
 
-账号检测、失败处置和自动恢复，请阅读[质量运维](docs/account-quality-operations.md)；BPS OAuth 登录、工具兼容和 403 恢复配置，请阅读[Excel / BPS 协议](docs/excel-bps.md)。
+账号质量检测与恢复见 [质量运维](docs/account-quality-operations.md)；BPS 配置见 [Excel / BPS 协议](docs/excel-bps.md)。
 
-已经托管账号或完成部署，想在 Codex 中使用？请阅读[新人入门：使用 Sub2API 接入 Codex](docs/新人入门-使用Sub2API.md)，按步骤创建 API Key、配置 Cockpit Tools 并验证调用。
+## 已知限制
 
-
-## 本仓库的维护方向
-
-本仓库是 `ranxi2001/sub2api` 的独立生产 fork，基于 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) 按需同步。应用功能、上游修复、Release 和生产验证都以 `production` 分支为准；不会用上游默认分支或 tag 直接覆盖本 fork 的生产历史。
-
-- **DeepSeek 与 Codex 适配**：支持 Responses 到 Chat Completions 的转换、工具调用历史和上下文压缩兼容。配置模型映射后，可通过切换 API Key 分组使用 DeepSeek，沿用客户端配置。[操作教程](https://tosky.io/docs/?doc=deepseek-switch-group)
-- **账号质量运维**：维护定时答题检测、判题记录、失败处置和自动恢复，支持按模型隔离及全部检测模型失败时移出指定分组。检测结果以实际回答和判题证据为准，不以票据形态判断质量。
-- **Mihomo 出口管理**：维护订阅、动态代理、节点状态和账号业务出口；支持从订阅节点或动态代理单条、批量添加为静态代理，再给账号分别选择固定节点。[操作说明](docs/mihomo-static-node-proxies.md)
-- **Excel / Basispoints**：维护模型级 BPS 路由、内嵌图片 HTTPS 中转、磁盘和并发保护、结构化输出校验，以及工具历史和 transport 恢复。路由遵循账号与模型配置；不支持的托管工具可按策略回退原生 Codex，或保持 BPS 并省略工具，具体边界见 [BPS 配置说明](docs/excel-bps.md)。
-- **上游修复维护**：持续跟踪上游 Codex、Responses、工具调用、密文恢复和限流修复；先确认与本 fork 的行为差异，再按提交级别移植并补充回归测试。
-- **独立发布与升级**：使用 `ranxi2001/sub2api` 的 Release、安装资源和容器镜像。版本变更见 [更新说明](https://github.com/ranxi2001/sub2api/releases)；Release 成功不代表生产服务已经部署，线上状态需要单独验证。
-
-贡献代码时，请在独立分支中说明影响的请求路径、账号类型、配置默认值和兼容边界。涉及生产分支的修复应先进入原 PR head，通过 CI 后再合并；不要提交 Token、OAuth 导出、ticket、代理凭据或生产配置。
+- 上游质量实测暂不支持 Gemini / Antigravity 平台。
+- 故障转移时间预算尚未覆盖 Grok 媒体、图片和 embeddings 等少数重试循环。
+- 半开探测遇到 400 时，探测槽位可能保留到安全过期时间才释放。
 
 ## 项目概述
 
@@ -121,61 +129,13 @@ gateway:
 | 观测与运维 | 结构化日志、请求分段耗时、健康检查、Mihomo 出口与 systemd |
 | 交付与质量 | Docker Compose、GitHub Actions、Go 单元测试、前端类型检查与构建 |
 
-## 贡献与协作
+## 贡献
 
-欢迎围绕协议兼容、账号调度、质量运维、支付计费、管理后台和运维观测提交改进。高质量贡献应尽量保持边界清晰，并在 PR 中说明请求路径、状态变化、兼容性影响和验证证据。
+欢迎提交 Issue 和 PR。请在 PR 中说明影响的请求路径、账号类型、配置默认值和兼容边界，并列出实际运行过的测试；不要提交 Token、OAuth 导出、代理凭据或生产配置。推送和 PR 会自动运行 Go 单元测试、集成测试、golangci-lint 和前端测试。
 
-开始前请阅读 [贡献指南](CONTRIBUTING.md)：包含最小复现、日志脱敏、开发环境、验证命令和 PR 流程。[提交 Issue](https://github.com/ranxi2001/sub2api/issues/new/choose) 时可选择 Bug、功能建议、文档或使用问题表单；提交 PR 时按模板填写行为变化和实际验证结果。
-
-建议按以下方式提交：
-
-- **协议与网关**：补充请求/响应样例，覆盖流式终止、工具调用、重试和上游错误映射。
-- **调度与账号**：说明候选筛选、粘性状态、并发占用、冷却窗口和故障转移行为，避免改变幂等语义。
-- **后台与配置**：同步前后端类型、默认值、权限边界和迁移兼容性。
-- **运维与部署**：提供离线或 mock 验证，不在 PR 中写入 Token、ticket、代理凭据或生产配置。
-- **验证与审查**：列出实际运行的测试、构建或脚本检查；未运行的检查不要标记为通过。
-
-感谢已合并 PR 的贡献者（按本仓库已合并 PR 数量降序排列，数量相同时按 GitHub 用户名排序）：
-
-<p>
-  <a href="https://github.com/ranxi2001"><img src="https://avatars.githubusercontent.com/u/77790009?v=4" width="56" height="56" alt="Onefly" title="Onefly" /></a>
-  <a href="https://github.com/akihitohyh"><img src="https://avatars.githubusercontent.com/u/79531840?v=4" width="56" height="56" alt="akihitohyh" title="akihitohyh" /></a>
-  <a href="https://github.com/blackdm666"><img src="https://avatars.githubusercontent.com/u/67053678?v=4" width="56" height="56" alt="老黑" title="老黑" /></a>
-  <a href="https://github.com/psyche314"><img src="https://avatars.githubusercontent.com/u/180074435?v=4" width="56" height="56" alt="psyche314" title="psyche314" /></a>
-  <a href="https://github.com/akayedi"><img src="https://avatars.githubusercontent.com/u/90334896?v=4" width="56" height="56" alt="akayedi" title="akayedi" /></a>
-  <a href="https://github.com/loserzero-7"><img src="https://avatars.githubusercontent.com/u/177290228?v=4" width="56" height="56" alt="loserzero-7" title="loserzero-7" /></a>
-  <a href="https://github.com/289989142"><img src="https://avatars.githubusercontent.com/u/63082228?v=4" width="56" height="56" alt="289989142" title="289989142" /></a>
-  <a href="https://github.com/AI8888-SHOP"><img src="https://avatars.githubusercontent.com/u/297756662?v=4" width="56" height="56" alt="AI8888-SHOP" title="AI8888-SHOP" /></a>
-  <a href="https://github.com/damian2848"><img src="https://avatars.githubusercontent.com/u/55676325?v=4" width="56" height="56" alt="damian2848" title="damian2848" /></a>
-  <a href="https://github.com/Cd1s"><img src="https://avatars.githubusercontent.com/u/135119404?v=4" width="56" height="56" alt="Cd1s" title="Cd1s" /></a>
-  <a href="https://github.com/danvilig"><img src="https://avatars.githubusercontent.com/u/230506945?v=4" width="56" height="56" alt="danvilig" title="danvilig" /></a>
-  <a href="https://github.com/EdmundMad0309"><img src="https://avatars.githubusercontent.com/u/122854730?v=4" width="56" height="56" alt="EdmundMad0309" title="EdmundMad0309" /></a>
-  <a href="https://github.com/LeeSssong"><img src="https://avatars.githubusercontent.com/u/37948462?v=4" width="56" height="56" alt="LeeSssong" title="LeeSssong" /></a>
-  <a href="https://github.com/QQQHHHDDD"><img src="https://avatars.githubusercontent.com/u/51820811?v=4" width="56" height="56" alt="QQQHHHDDD" title="QQQHHHDDD" /></a>
-  <a href="https://github.com/spake404"><img src="https://avatars.githubusercontent.com/u/123435269?v=4" width="56" height="56" alt="spake404" title="spake404" /></a>
-  <a href="https://github.com/stl25"><img src="https://avatars.githubusercontent.com/u/317681732?v=4" width="56" height="56" alt="stl25" title="stl25" /></a>
-  <a href="https://github.com/wuwu131452011"><img src="https://avatars.githubusercontent.com/u/165636850?v=4" width="56" height="56" alt="wuwu131452011" title="wuwu131452011" /></a>
-  <a href="https://github.com/abcgoodwei"><img src="https://avatars.githubusercontent.com/u/35887090?v=4" width="56" height="56" alt="abcgoodwei" title="abcgoodwei" /></a>
-  <a href="https://github.com/alanbulan"><img src="https://avatars.githubusercontent.com/u/140389107?v=4" width="56" height="56" alt="alanbulan" title="alanbulan" /></a>
-  <a href="https://github.com/ambi-vip"><img src="https://avatars.githubusercontent.com/u/46626203?v=4" width="56" height="56" alt="ambi-vip" title="ambi-vip" /></a>
-  <a href="https://github.com/ape-ming"><img src="https://avatars.githubusercontent.com/u/30568607?v=4" width="56" height="56" alt="ape-ming" title="ape-ming" /></a>
-  <a href="https://github.com/BeterXie"><img src="https://avatars.githubusercontent.com/u/30471270?v=4" width="56" height="56" alt="BeterXie" title="BeterXie" /></a>
-  <a href="https://github.com/buluw"><img src="https://avatars.githubusercontent.com/u/45087912?v=4" width="56" height="56" alt="buluw" title="buluw" /></a>
-  <a href="https://github.com/Coke165"><img src="https://avatars.githubusercontent.com/u/259744923?v=4" width="56" height="56" alt="Coke165" title="Coke165" /></a>
-  <a href="https://github.com/Even1997"><img src="https://avatars.githubusercontent.com/u/95899304?v=4" width="56" height="56" alt="Even1997" title="Even1997" /></a>
-  <a href="https://github.com/InCerryGit"><img src="https://avatars.githubusercontent.com/u/36690780?v=4" width="56" height="56" alt="InCerryGit" title="InCerryGit" /></a>
-  <a href="https://github.com/Lanyang1176"><img src="https://avatars.githubusercontent.com/u/187152708?v=4" width="56" height="56" alt="Lanyang1176" title="Lanyang1176" /></a>
-  <a href="https://github.com/Mickey0811"><img src="https://avatars.githubusercontent.com/u/49522921?v=4" width="56" height="56" alt="Mickey0811" title="Mickey0811" /></a>
-  <a href="https://github.com/mracry"><img src="https://avatars.githubusercontent.com/u/112537993?v=4" width="56" height="56" alt="mracry" title="mracry" /></a>
-  <a href="https://github.com/sylarchen1389"><img src="https://avatars.githubusercontent.com/u/43306063?v=4" width="56" height="56" alt="sylarchen1389" title="sylarchen1389" /></a>
-  <a href="https://github.com/Terry1321"><img src="https://avatars.githubusercontent.com/u/41000037?v=4" width="56" height="56" alt="Terry1321" title="Terry1321" /></a>
-  <a href="https://github.com/yuanyuan19"><img src="https://avatars.githubusercontent.com/u/120552623?v=4" width="56" height="56" alt="yuanyuan19" title="yuanyuan19" /></a>
-  <a href="https://github.com/ZASENJC"><img src="https://avatars.githubusercontent.com/u/65362072?v=4" width="56" height="56" alt="ZASENJC" title="ZASENJC" /></a>
-  <a href="https://github.com/zhoumooooo"><img src="https://avatars.githubusercontent.com/u/271002711?v=4" width="56" height="56" alt="zhoumooooo" title="zhoumooooo" /></a>
-</p>
+上游的贡献者与社区请见 [ranxi2001/sub2api](https://github.com/ranxi2001/sub2api) 和 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api)，感谢他们的工作。
 
 ---
-
 
 ## ⚠️ 重要提醒
 
@@ -188,14 +148,6 @@ gateway:
 
 ## 许可证
 
-本项目基于 [GNU 宽通用公共许可证 v3.0](LICENSE)（或更高版本）授权。
+本项目基于 [GNU 宽通用公共许可证 v3.0](LICENSE)（或更高版本）授权，沿用上游许可。
 
-Copyright (c) 2026 Wesley Liddick
-
----
-
-<div align="center">
-
-**如果觉得有用，请给个 Star 支持一下！**
-
-</div>
+Copyright (c) 2026 Wesley Liddick 及各分支贡献者
