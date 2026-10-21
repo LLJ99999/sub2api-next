@@ -1336,7 +1336,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			if clientDisconnected {
 				continue
 			}
-			if refusalDetector.Enabled() && !clientOutputStarted {
+			if !clientOutputStarted {
 				continue
 			}
 			if time.Since(lastDataAt) < keepaliveInterval {
