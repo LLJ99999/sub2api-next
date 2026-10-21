@@ -72,7 +72,7 @@ func TestNormalizeQualityModel(t *testing.T) {
 }
 
 func TestUpstreamQualityAnomalies(t *testing.T) {
-	req := buildUpstreamQualityProbeRequest(UpstreamQualityProbeProtocolChat, "claude-opus", "qp_canary_abc")
+	req := buildUpstreamQualityProbeRequestWithPrompt(UpstreamQualityProbeProtocolChat, "claude-opus", "qp_canary_abc", "")
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(req.body, &payload))
 	require.Equal(t, true, payload["stream"])
@@ -123,7 +123,7 @@ func TestUpstreamQualityProbeMeasuresTTFTAndRedactsKey(t *testing.T) {
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}}, nil
 	}
 	account := &Account{ID: 9, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "sk-test-secret-key", "base_url": "https://relay.example.com/v1"}}
-	res := svc.probe(context.Background(), account, "m", DefaultUpstreamQualityProbeSettings())
+	res := svc.probe(context.Background(), account, "m", "", DefaultUpstreamQualityProbeSettings())
 	require.Equal(t, UpstreamQualityProbeStatusSuccess, res.Status, res.ErrorMessage)
 	require.NotNil(t, captured)
 	require.Equal(t, "https://relay.example.com/v1/chat/completions", captured.URL.String())
@@ -154,7 +154,7 @@ func TestUpstreamQualityCustomPromptSkipsPongCheck(t *testing.T) {
 	m.text.WriteString("4")
 	require.NotContains(t, upstreamQualityAnomalies(req, "m", m, 200), UpstreamQualityAnomalyUnexpectedText)
 
-	plain := buildUpstreamQualityProbeRequest(UpstreamQualityProbeProtocolChat, "m", "qp_canary_abc")
+	plain := buildUpstreamQualityProbeRequestWithPrompt(UpstreamQualityProbeProtocolChat, "m", "qp_canary_abc", "")
 	require.False(t, plain.custom)
 	require.Contains(t, upstreamQualityAnomalies(plain, "m", m, 200), UpstreamQualityAnomalyUnexpectedText)
 }

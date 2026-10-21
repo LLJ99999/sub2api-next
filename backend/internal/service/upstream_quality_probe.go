@@ -438,14 +438,6 @@ func newUpstreamQualityProbeCanary() string {
 	return "qp_canary_" + hex.EncodeToString(b)
 }
 
-// buildUpstreamQualityProbeRequest asks for a one-word answer and offers one
-// tool the model must not call. A tool call, or the canary tool name showing
-// up in the text, means the upstream (or a layer in front of it) is calling
-// tools on its own or leaking the request configuration back.
-func buildUpstreamQualityProbeRequest(protocol, model, canary string) upstreamQualityProbeRequest {
-	return buildUpstreamQualityProbeRequestWithPrompt(protocol, model, canary, "")
-}
-
 // buildUpstreamQualityProbeRequestWithPrompt sends an admin's custom prompt in
 // place of ping/pong; the canary tool stays so tool-call/echo checks still apply.
 func buildUpstreamQualityProbeRequestWithPrompt(protocol, model, canary, prompt string) upstreamQualityProbeRequest {
