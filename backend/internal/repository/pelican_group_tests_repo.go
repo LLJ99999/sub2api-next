@@ -136,6 +136,14 @@ func (r *pelicanGroupTestRepository) Claim(ctx context.Context, plan *service.Pe
 	return affected == 1, err
 }
 
+// NextPromptIndex hands out the plan's next prompt-rotation slot atomically.
+func (r *pelicanGroupTestRepository) NextPromptIndex(ctx context.Context, id int64) (int64, error) {
+	var slot int64
+	err := r.db.QueryRowContext(ctx, `UPDATE pelican_group_test_plans SET prompt_rotation = prompt_rotation + 1
+ WHERE id = $1 RETURNING prompt_rotation - 1`, id).Scan(&slot)
+	return slot, err
+}
+
 func (r *pelicanGroupTestRepository) Finish(ctx context.Context, id int64, until, finished time.Time) error {
 	_, err := r.db.ExecContext(ctx, `UPDATE pelican_group_test_plans SET running_until = NULL, last_run_at = $3
  WHERE id = $1 AND running_until = $2`, id, until, finished)

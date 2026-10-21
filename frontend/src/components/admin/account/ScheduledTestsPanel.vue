@@ -39,9 +39,16 @@
             <Input v-if="pelicanConfig" v-model="newPlan.model_id" />
             <Select v-else
               v-model="newPlan.model_id"
-              :options="modelOptions"
+              :options="effectiveModelOptions"
               :placeholder="t('admin.scheduledTests.model')"
-              :searchable="modelOptions.length > 5"
+              :searchable="effectiveModelOptions.length > 5"
+            />
+            <UpstreamModelPicker
+              class="mt-1"
+              :account-id="accountId"
+              :current="newPlan.model_id ? [newPlan.model_id] : []"
+              :data-testid="'scheduled-test-upstream-picker-new'"
+              @pick="(models) => pickUpstreamModel(newPlan, models)"
             />
           </div>
           <div>
@@ -258,9 +265,16 @@
                 <Input v-if="pelicanConfig" v-model="editForm.model_id" />
                 <Select v-else
                   v-model="editForm.model_id"
-                  :options="modelOptions"
+                  :options="effectiveModelOptions"
                   :placeholder="t('admin.scheduledTests.model')"
-                  :searchable="modelOptions.length > 5"
+                  :searchable="effectiveModelOptions.length > 5"
+                />
+                <UpstreamModelPicker
+                  class="mt-1"
+                  :account-id="accountId"
+                  :current="editForm.model_id ? [editForm.model_id] : []"
+                  :data-testid="'scheduled-test-upstream-picker-edit'"
+                  @pick="(models) => pickUpstreamModel(editForm, models)"
                 />
               </div>
               <div>
@@ -471,7 +485,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -484,6 +498,7 @@ import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
 import { formatDateTime } from '@/utils/format'
 import PelicanTestFields from './PelicanTestFields.vue'
+import UpstreamModelPicker from '@/components/admin/common/UpstreamModelPicker.vue'
 import { STATE_PROBE_QUESTION, stateProbeVerdict, type StateProbeVerdict } from '@/utils/intelligenceTest'
 import type { PelicanTestConfig, ScheduledTestPlan, ScheduledTestResult } from '@/types'
 
@@ -520,6 +535,20 @@ const props = defineProps<{
   defaultModel?: string
   disabled?: boolean
 }>()
+
+// Models picked from the live upstream list that the static options do not know yet.
+const upstreamPickedModels = ref<string[]>([])
+const effectiveModelOptions = computed<SelectOption[]>(() => {
+  const known = new Set(props.modelOptions.map(option => String(option.value)))
+  const extra = upstreamPickedModels.value.filter(model => !known.has(model)).map(model => ({ value: model, label: model }))
+  return [...props.modelOptions, ...extra]
+})
+const pickUpstreamModel = (form: { model_id: string }, models: string[]) => {
+  const model = models[0]
+  if (!model) return
+  if (!upstreamPickedModels.value.includes(model)) upstreamPickedModels.value = [...upstreamPickedModels.value, model]
+  form.model_id = model
+}
 
 const emit = defineEmits<{
   (e: 'close'): void

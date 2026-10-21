@@ -31,3 +31,24 @@ func rechargeBonusTiersToDTO(items []service.RechargeBonusTier) []dto.RechargeBo
 	}
 	return out
 }
+
+// rechargeTabsFromDTO converts the admin request; nil means "not updating".
+func rechargeTabsFromDTO(items *[]dto.RechargeTab) *[]service.RechargeTab {
+	if items == nil {
+		return nil
+	}
+	out := make([]service.RechargeTab, 0, len(*items))
+	for _, item := range *items {
+		out = append(out, service.RechargeTab{ID: item.ID, Name: item.Name, SortOrder: item.SortOrder, Enabled: item.Enabled, Methods: append([]string(nil), item.Methods...)})
+	}
+	return &out
+}
+
+func rechargeTabsToDTO(items []service.RechargeTab) []dto.RechargeTab {
+	out := make([]dto.RechargeTab, 0, len(items))
+	for _, item := range items {
+		methods := append([]string{}, item.Methods...)
+		out = append(out, dto.RechargeTab{ID: item.ID, Name: item.Name, SortOrder: item.SortOrder, Enabled: item.Enabled, Methods: methods})
+	}
+	return out
+}

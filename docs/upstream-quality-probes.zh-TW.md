@@ -109,3 +109,9 @@
 
 - 只為需要關注品質的中轉上游開啟，間隔 30–60 分鐘足夠觀察趨勢。
 - 若某上游持續出現 `upstream_model_mismatch` 或 `input_tokens_mismatch`，可結合「上游中轉熔斷」「上游變動提醒」一起排查是否被替換模型或倍率調整。
+
+## 11. 自訂題目輪換、模型選擇器與批次開啟
+
+- **題目輪換**：帳號設定可填寫 `prompts`（最多 20 條，每條 ≤ 8000 字元，空行忽略）。設定後每次探測（排程與「立即執行」）依序輪換使用下一條，游標 `prompt_rotation` 持久化於資料庫（遷移 `322_upstream_quality_probe_prompts.sql`），重啟或多實例不會打亂順序。使用自訂題目時不再檢查回答是否含 `pong`（不產生 `unexpected_answer`），輸出上限放寬至 512 token；誘餌工具仍保留，`unexpected_tool_call` / `echoed_tool_config` 等檢查照常。`prompts` 為空時維持原本的 ping/pong 探測。儲存設定時省略 `prompts` 欄位會保留既有題目（批次開關不會清空）。
+- **從上游拉取模型**：模型輸入框旁的「從上游拉取」按鈕會即時請求該帳號上游的 `/v1/models`，清單可搜尋，點選即填入。同一個選擇器也用於鵜鶘測智、通道監控、分組模型白名單、帳號測試與排程測試。依分組設定的頁面呼叫 `POST /api/v1/admin/accounts/models/sync-upstream-by-group`（`{"group_id": N}`），彙總該分組中啟用帳號的模型（同一 Base URL 只請求一次，最多 8 個上游），失敗帳號只回傳警告，不暴露金鑰。
+- **批次開啟**：帳號管理勾選多個帳號後，批次操作列「上游品質探測」可一次開啟 / 關閉探測，並可統一指定模型與間隔（5–1440 分鐘，模型留空則沿用各帳號既有設定）。開啟時同一上游 Base URL 只開啟第一個帳號，其餘標記為「已略過（上游重複）」並註明首個帳號；關閉對全部選取帳號生效。每列顯示結果（已開啟 / 已關閉 / 已略過 / 失敗）。介面：`POST /api/v1/admin/upstream-quality-probes/accounts/batch`，請求體 `{"account_ids": [...], "enabled": true, "model": "...", "interval_minutes": 60}`，單次 1–500 個帳號。

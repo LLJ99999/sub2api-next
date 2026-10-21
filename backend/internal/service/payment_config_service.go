@@ -67,13 +67,15 @@ type PaymentConfig struct {
 	// RechargeBonusMode 阶梯模式：bonus（赠金）/ discount（折扣），已归一化。
 	RechargeBonusMode string `json:"recharge_bonus_mode"`
 	// RechargeBonusNotice 充值页展示的 Markdown 活动文案；空表示不展示。
-	RechargeBonusNotice  string `json:"recharge_bonus_notice"`
-	LoadBalanceStrategy  string `json:"load_balance_strategy"`
-	ProductNamePrefix    string `json:"product_name_prefix"`
-	ProductNameSuffix    string `json:"product_name_suffix"`
-	HelpImageURL         string `json:"help_image_url"`
-	HelpText             string `json:"help_text"`
-	StripePublishableKey string `json:"stripe_publishable_key,omitempty"`
+	RechargeBonusNotice string `json:"recharge_bonus_notice"`
+	// RechargeTabs 充值页自定义 tab（已校验、按 SortOrder 排序）；空表示默认单个「充值」tab。
+	RechargeTabs         []RechargeTab `json:"recharge_tabs"`
+	LoadBalanceStrategy  string        `json:"load_balance_strategy"`
+	ProductNamePrefix    string        `json:"product_name_prefix"`
+	ProductNameSuffix    string        `json:"product_name_suffix"`
+	HelpImageURL         string        `json:"help_image_url"`
+	HelpText             string        `json:"help_text"`
+	StripePublishableKey string        `json:"stripe_publishable_key,omitempty"`
 
 	// Cancel rate limit settings
 	CancelRateLimitEnabled bool   `json:"cancel_rate_limit_enabled"`
@@ -105,11 +107,13 @@ type UpdatePaymentConfigRequest struct {
 	RechargeBonusTiers  *[]RechargeBonusTier `json:"recharge_bonus_tiers"`
 	RechargeBonusMode   *string              `json:"recharge_bonus_mode"`
 	RechargeBonusNotice *string              `json:"recharge_bonus_notice"`
-	LoadBalanceStrategy *string              `json:"load_balance_strategy"`
-	ProductNamePrefix   *string              `json:"product_name_prefix"`
-	ProductNameSuffix   *string              `json:"product_name_suffix"`
-	HelpImageURL        *string              `json:"help_image_url"`
-	HelpText            *string              `json:"help_text"`
+	// RechargeTabs nil 表示不更新；空切片表示恢复默认单个「充值」tab。
+	RechargeTabs        *[]RechargeTab `json:"recharge_tabs"`
+	LoadBalanceStrategy *string        `json:"load_balance_strategy"`
+	ProductNamePrefix   *string        `json:"product_name_prefix"`
+	ProductNameSuffix   *string        `json:"product_name_suffix"`
+	HelpImageURL        *string        `json:"help_image_url"`
+	HelpText            *string        `json:"help_text"`
 
 	// Cancel rate limit settings
 	CancelRateLimitEnabled *bool   `json:"cancel_rate_limit_enabled"`
@@ -131,13 +135,16 @@ type UpdatePaymentConfigRequest struct {
 
 // MethodLimits holds per-payment-type limits.
 type MethodLimits struct {
-	PaymentType string  `json:"payment_type"`
-	DisplayName string  `json:"display_name,omitempty"`
-	Currency    string  `json:"currency"`
-	FeeRate     float64 `json:"fee_rate"`
-	DailyLimit  float64 `json:"daily_limit"`
-	SingleMin   float64 `json:"single_min"`
-	SingleMax   float64 `json:"single_max"`
+	PaymentType string `json:"payment_type"`
+	DisplayName string `json:"display_name,omitempty"`
+	// UpstreamType is the EasyPay customMethods upstreamType (e.g. "binance"),
+	// exposed so the UI can pick a matching icon; empty for built-in methods.
+	UpstreamType string  `json:"upstream_type,omitempty"`
+	Currency     string  `json:"currency"`
+	FeeRate      float64 `json:"fee_rate"`
+	DailyLimit   float64 `json:"daily_limit"`
+	SingleMin    float64 `json:"single_min"`
+	SingleMax    float64 `json:"single_max"`
 }
 
 // MethodLimitsResponse is the full response for the user-facing /limits API.
@@ -230,7 +237,7 @@ func (s *PaymentConfigService) GetPaymentConfig(ctx context.Context) (*PaymentCo
 		SettingPaymentEnabled, SettingMinRechargeAmount, SettingMaxRechargeAmount,
 		SettingDailyRechargeLimit, SettingOrderTimeoutMinutes, SettingMaxPendingOrders,
 		SettingEnabledPaymentTypes, SettingBalancePayDisabled, SettingBalanceRechargeMult, SettingSubscriptionUSDToCNYRate, SettingRechargeFeeRate, SettingLoadBalanceStrategy,
-		SettingRechargeBonusTiers, SettingRechargeBonusMode, SettingRechargeBonusNotice,
+		SettingRechargeBonusTiers, SettingRechargeBonusMode, SettingRechargeBonusNotice, SettingRechargeTabs,
 		SettingProductNamePrefix, SettingProductNameSuffix,
 		SettingHelpImageURL, SettingHelpText,
 		SettingCancelRateLimitOn, SettingCancelRateLimitMax,
@@ -263,6 +270,7 @@ func (s *PaymentConfigService) parsePaymentConfig(vals map[string]string) *Payme
 		RechargeFeeRate:           pcParseFloat(vals[SettingRechargeFeeRate], 0),
 		RechargeBonusTiers:        parseRechargeBonusTiers(vals[SettingRechargeBonusTiers]),
 		RechargeBonusNotice:       vals[SettingRechargeBonusNotice],
+		RechargeTabs:              parseRechargeTabs(vals[SettingRechargeTabs]),
 		LoadBalanceStrategy:       vals[SettingLoadBalanceStrategy],
 		ProductNamePrefix:         vals[SettingProductNamePrefix],
 		ProductNameSuffix:         vals[SettingProductNameSuffix],
@@ -361,6 +369,10 @@ func (s *PaymentConfigService) UpdatePaymentConfig(ctx context.Context, req Upda
 	if err != nil {
 		return err
 	}
+	rechargeTabsValue, err := resolveRechargeTabsUpdate(req)
+	if err != nil {
+		return infraerrors.BadRequest("INVALID_RECHARGE_TABS", err.Error())
+	}
 	if req.RechargeBonusNotice != nil {
 		if err := validateRechargeBonusNotice(*req.RechargeBonusNotice); err != nil {
 			return infraerrors.BadRequest("INVALID_RECHARGE_BONUS_NOTICE", err.Error())
@@ -408,6 +420,9 @@ func (s *PaymentConfigService) UpdatePaymentConfig(ctx context.Context, req Upda
 	}
 	if req.RechargeBonusNotice != nil {
 		m[SettingRechargeBonusNotice] = strings.TrimSpace(*req.RechargeBonusNotice)
+	}
+	if req.RechargeTabs != nil {
+		m[SettingRechargeTabs] = rechargeTabsValue
 	}
 	if req.LoadBalanceStrategy != nil {
 		m[SettingLoadBalanceStrategy] = derefStr(req.LoadBalanceStrategy)

@@ -1448,8 +1448,26 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	// Collect unique models from all accounts
 	modelSet := make(map[string]struct{})
 	hasAnyMapping := false
+	// Passthrough API-key accounts whose upstream /v1/models answered (#6647);
+	// they contribute that list instead of the default catalog.
+	var upstreamListed map[int64]struct{}
 
 	for _, acc := range accounts {
+		if platform == PlatformOpenAI {
+			if listed, ok := passthroughUpstreamModels.get(ctx, &acc); ok {
+				for _, model := range listed {
+					if acc.IsModelAllowedInGroup(groupID, model) {
+						modelSet[model] = struct{}{}
+						hasAnyMapping = true
+					}
+				}
+				if upstreamListed == nil {
+					upstreamListed = map[int64]struct{}{}
+				}
+				upstreamListed[acc.ID] = struct{}{}
+				continue
+			}
+		}
 		// Passthrough routing accepts models independently of model_mapping, so a
 		// stale mapping on a passthrough account must not narrow the public list.
 		// Treat it like an unmapped account: skip its mapping here and let
@@ -1508,7 +1526,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	sort.Strings(models)
 
 	if platform == PlatformOpenAI {
-		models = supplementUnmappedOpenAIModels(accounts, groupID, models)
+		models = supplementUnmappedOpenAIModelsExcept(accounts, groupID, models, upstreamListed)
 		models = filterRetiredOpenAIModelIDs(accounts, models)
 		// nil means "use defaults" to listing callers; an empty filtered catalog
 		// must remain authoritative instead of resurrecting retired defaults.

@@ -68,9 +68,17 @@
       </div>
 
       <div v-if="showModelSelect" class="space-y-1.5">
-        <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-          {{ t('admin.accounts.selectTestModel') }}
-        </label>
+        <div class="flex items-center justify-between">
+          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {{ t('admin.accounts.selectTestModel') }}
+          </label>
+          <UpstreamModelPicker
+            v-if="props.account?.type === 'apikey'"
+            :account-id="props.account?.id ?? null"
+            :current="selectedModelId ? [selectedModelId] : []"
+            @pick="selectUpstreamTestModel"
+          />
+        </div>
         <Select
           v-model="selectedModelId"
           :options="modelOptionsForMode"
@@ -376,6 +384,7 @@
 </template>
 
 <script setup lang="ts">
+import UpstreamModelPicker from '@/components/admin/common/UpstreamModelPicker.vue'
 import { computed, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -417,6 +426,17 @@ const streamingContent = ref('')
 const errorMessage = ref('')
 const availableModels = ref<ClaudeModel[]>([])
 const selectedModelId = ref('')
+
+// 从上游拉取模型: a model the upstream lists but the local catalog lacks is added
+// to the options so it can be tested.
+function selectUpstreamTestModel(models: string[]) {
+  const id = models[0]
+  if (!id) return
+  if (!availableModels.value.some((m) => m.id === id)) {
+    availableModels.value = [...availableModels.value, { id, type: 'model', display_name: id, created_at: '' }]
+  }
+  selectedModelId.value = id
+}
 const testPrompt = ref('')
 const loadingModels = ref(false)
 const modelLoadError = ref('')

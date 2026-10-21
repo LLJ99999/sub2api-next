@@ -8837,6 +8837,13 @@
             v-model:notice="form.payment_recharge_bonus_notice"
           />
 
+          <!-- 充值页多 tab（自定义名称/排序/绑定支付方式） -->
+          <RechargeTabsEditor
+            v-if="form.payment_enabled"
+            v-model="form.payment_recharge_tabs"
+            :providers="providers"
+          />
+
           <!-- Provider Management -->
           <PaymentProviderList
             v-if="form.payment_enabled"
@@ -9432,6 +9439,9 @@ import NavLayoutSettings from "@/components/admin/settings/NavLayoutSettings.vue
 import ServerlessSettings from "@/components/settings/ServerlessSettings.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import RechargeBonusTierEditor from "@/components/admin/settings/RechargeBonusTierEditor.vue";
+import RechargeTabsEditor from "@/components/admin/settings/RechargeTabsEditor.vue";
+import { normalizeRechargeTabsForAdmin, validateRechargeTabsDraft } from "@/utils/rechargeTabs";
+import type { RechargeTab } from "@/types/payment";
 import {
   normalizeRechargeBonusMode,
   normalizeRechargeBonusTiers,
@@ -10146,6 +10156,7 @@ type SettingsForm = Omit<
   payment_recharge_bonus_tiers: RechargeBonusTierDraft[];
   payment_recharge_bonus_mode: RechargeBonusMode;
   payment_recharge_bonus_notice: string;
+  payment_recharge_tabs: RechargeTab[];
   // 系统全局平台限额 map；form 内始终归一化为全部平台对象（模板非空绑定依赖此不变量）
   default_platform_quotas: DefaultPlatformQuotasMap;
   account_scheduling_thresholds: ReturnType<typeof normalizeAccountSchedulingThresholdsMap>;
@@ -10230,6 +10241,7 @@ const form = reactive<SettingsForm>({
   payment_recharge_bonus_tiers: [],
   payment_recharge_bonus_mode: "bonus",
   payment_recharge_bonus_notice: "",
+  payment_recharge_tabs: [],
   payment_enabled_types: [],
   payment_help_image_url: "",
   payment_help_text: "",
@@ -11543,6 +11555,7 @@ async function loadSettings() {
       settings.payment_recharge_bonus_mode,
     );
     form.payment_recharge_bonus_notice = settings.payment_recharge_bonus_notice || "";
+    form.payment_recharge_tabs = normalizeRechargeTabsForAdmin(settings.payment_recharge_tabs);
     form.default_platform_quotas = normalizePlatformQuotasMap(settings.default_platform_quotas);
     form.account_scheduling_thresholds = normalizeAccountSchedulingThresholdsMap(
       settings.account_scheduling_thresholds,
@@ -11752,6 +11765,11 @@ const siteBillingModeHint = computed(() =>
 async function saveSettings() {
   saving.value = true;
   try {
+    const rechargeTabsError = validateRechargeTabsDraft(form.payment_recharge_tabs);
+    if (rechargeTabsError) {
+      appStore.showError(t(`admin.settings.payment.rechargeTabs.errors.${rechargeTabsError}`, { max: 10, maxName: 32 }));
+      return;
+    }
     const imageBaseUrl = form.excel_bps_image_base_url.trim();
     if ((form.excel_bps_image_relay_enabled && form.excel_bps_image_mode === 'relay') || imageBaseUrl) {
       try {
@@ -12203,6 +12221,7 @@ async function saveSettings() {
       ),
       payment_recharge_bonus_mode: form.payment_recharge_bonus_mode,
       payment_recharge_bonus_notice: form.payment_recharge_bonus_notice,
+      payment_recharge_tabs: form.payment_recharge_tabs.map((tab, index) => ({ ...tab, name: tab.name.trim(), sort_order: index + 1 })),
       payment_enabled_types: form.payment_enabled_types,
       payment_load_balance_strategy: form.payment_load_balance_strategy,
       payment_product_name_prefix: form.payment_product_name_prefix,

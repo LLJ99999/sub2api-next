@@ -13,6 +13,7 @@ import type {
   NotifyEmailEntry,
 } from "@/types";
 import type { RechargeBonusTier } from "@/utils/rechargeBonus";
+import type { RechargeTab } from "@/types/payment";
 import type { SupportTicketConfig } from "@/api/supportTickets";
 
 export interface DefaultSubscriptionSetting {
@@ -697,6 +698,8 @@ export interface SystemSettings {
   payment_recharge_bonus_tiers?: RechargeBonusTier[];
   payment_recharge_bonus_mode?: string;
   payment_recharge_bonus_notice?: string;
+  /** 充值页自定义 tab；空数组 = 默认单个「充值」tab */
+  payment_recharge_tabs?: RechargeTab[];
   payment_load_balance_strategy: string;
   payment_product_name_prefix: string;
   payment_product_name_suffix: string;
@@ -1066,6 +1069,8 @@ export interface UpdateSettingsRequest {
   payment_recharge_bonus_tiers?: RechargeBonusTier[];
   payment_recharge_bonus_mode?: string;
   payment_recharge_bonus_notice?: string;
+  /** 充值页自定义 tab；空数组 = 默认单个「充值」tab */
+  payment_recharge_tabs?: RechargeTab[];
   payment_load_balance_strategy?: string;
   payment_product_name_prefix?: string;
   payment_product_name_suffix?: string;

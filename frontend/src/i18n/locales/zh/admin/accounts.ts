@@ -742,6 +742,31 @@ export default {
       bulkSchedulableDisabled: '成功停止 {count} 个账号的调度',
       bulkSchedulablePartial: '部分调度更新成功：成功 {success} 个，失败 {failed} 个',
       bulkSchedulableResultUnknown: '批量调度结果不完整，请稍后重试或刷新列表',
+      upstreamProbeBulk: {
+        billingButton: '上游变动监控',
+        qualityButton: '上游质量探测',
+        billingTitle: '批量上游变动监控',
+        qualityTitle: '批量上游质量探测',
+        summary: '已选择 {count} 个账号',
+        dedupHint: '开启时，同一上游 Base URL 只开启一次，后续账号会跳过并标注首个账号；关闭对所有选中账号生效。',
+        model: '探测模型',
+        modelPlaceholder: '留空则使用各账号默认模型',
+        interval: '间隔（分钟）',
+        account: '账号',
+        status: '结果',
+        enable: '批量开启',
+        disable: '批量关闭',
+        duplicateOf: '与 {name} 同一上游',
+        done: '完成：已处理 {total} 个账号',
+        partial: '{total} 个账号中 {failed} 个失败',
+        failed: '批量操作失败',
+        statuses: {
+          enabled: '已开启',
+          disabled: '已关闭',
+          skipped_duplicate: '已跳过（上游重复）',
+          failed: '失败'
+        }
+      },
       bulkActions: {
         selected: '已选择 {count} 个账号',
         selectedAll: '已选择全部 {count} 个账号',

@@ -24,7 +24,7 @@
         @click="method.available && emit('select', method.type)"
       >
         <span class="flex w-full min-w-0 items-center justify-center gap-2">
-          <img :src="methodIcon(method.type)" :alt="methodLabel(method)" class="h-7 w-7 shrink-0 object-contain" />
+          <img :src="methodIcon(method.type, method.upstream_type)" :alt="methodLabel(method)" class="h-7 w-7 shrink-0 object-contain" />
           <span class="flex min-w-0 flex-col items-start leading-none">
             <span data-testid="payment-method-label" class="block w-full truncate text-base font-semibold">
               {{ methodLabel(method) }}
@@ -51,10 +51,14 @@ import wxpayIcon from '@/assets/icons/wxpay.svg'
 import stripeIcon from '@/assets/icons/stripe.svg'
 import airwallexIcon from '@/assets/icons/airwallex.svg'
 import paymentIcon from '@/assets/icons/payment.svg'
+import binanceIcon from '@/assets/icons/binance.svg'
+import { isBinanceMethod } from '@/utils/rechargeTabs'
 
 export interface PaymentMethodOption {
   type: string
   display_name?: string
+  /** EasyPay customMethods upstreamType, used to pick an icon (e.g. binance) */
+  upstream_type?: string
   fee_rate: number
   available: boolean
 }
@@ -87,7 +91,8 @@ const sortedMethods = computed(() => {
   })
 })
 
-function methodIcon(type: string): string {
+function methodIcon(type: string, upstreamType?: string): string {
+  if (isBinanceMethod(type, upstreamType)) return binanceIcon
   if (isBuiltInAlipayMethod(type)) return METHOD_ICONS.alipay
   if (isBuiltInWxpayMethod(type)) return METHOD_ICONS.wxpay
   if (type === 'airwallex') return METHOD_ICONS.airwallex

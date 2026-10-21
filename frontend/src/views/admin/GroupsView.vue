@@ -2612,6 +2612,11 @@
                 >
                   {{ t("admin.groups.modelAllowlist.addCustom") }}
                 </button>
+                <UpstreamModelPicker
+                  :group-id="editingGroup?.id ?? null"
+                  multiple
+                  @pick="addPickedEditAllowlistModels"
+                />
               </div>
               <p
                 v-if="editAllowlistCustomErrorKey"
@@ -4373,6 +4378,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue";
+import UpstreamModelPicker from "@/components/admin/common/UpstreamModelPicker.vue";
 import { useI18n } from "vue-i18n";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
@@ -5038,6 +5044,14 @@ const submitCreateAllowlistCustomEntry = () => {
     createAllowlistCustomErrorKey.value = `admin.groups.modelAllowlist.errors.${error}`;
   }
 };
+// 从上游拉取模型: each picked model goes through the same validation as a typed entry.
+const addPickedEditAllowlistModels = (models: string[]) => {
+  for (const model of models) {
+    editAllowlistCustomEntry.value = model;
+    submitEditAllowlistCustomEntry();
+  }
+};
+
 const submitEditAllowlistCustomEntry = () => {
   const error = addCustomModelAllowlistItem(
     editModelAllowlistState,

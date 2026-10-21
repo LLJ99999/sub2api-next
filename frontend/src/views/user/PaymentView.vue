@@ -38,14 +38,14 @@
             <p class="text-gray-500 dark:text-gray-400">{{ t('payment.billingUnavailable') }}</p>
           </div>
           <!-- Top-up Tab -->
-          <template v-else-if="activeTab === 'recharge'">
+          <template v-else-if="isRechargeTab">
             <!-- Recharge Account Card -->
             <div class="card p-5">
               <p class="text-xs font-medium text-gray-400 dark:text-gray-500">{{ t('payment.rechargeAccount') }}</p>
               <p class="mt-1 text-base font-semibold text-gray-900 dark:text-white">{{ user?.username || '' }}</p>
               <p class="mt-0.5 text-sm font-medium text-green-600 dark:text-green-400">{{ t('payment.currentBalance') }}: {{ user?.balance?.toFixed(2) || '0.00' }}</p>
             </div>
-            <div v-if="enabledMethods.length === 0" class="card py-16 text-center">
+            <div v-if="rechargeMethods.length === 0" class="card py-16 text-center">
               <p class="text-gray-500 dark:text-gray-400">{{ t('payment.notAvailable') }}</p>
             </div>
             <template v-else>
@@ -69,7 +69,7 @@
               />
               <p v-if="amountError" class="mt-2 text-xs text-amber-600 dark:text-amber-300">{{ amountError }}</p>
             </div>
-            <div v-if="enabledMethods.length >= 1" class="card p-6">
+            <div v-if="rechargeMethods.length >= 1" class="card p-6">
               <PaymentMethodSelector
                 :methods="methodOptions"
                 :selected="selectedMethod"
@@ -340,6 +340,7 @@ import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiErro
 import { isMobileDevice } from '@/utils/device'
 import { hasPeakRate, formatPeakRateWindow, serverTimezoneLabel, type PeakRateFields } from '@/utils/peak-rate'
 import type { SubscriptionPlan, CheckoutInfoResponse, CreateOrderResult, OrderType, SubscriptionRenewalMode } from '@/types/payment'
+import { DEFAULT_RECHARGE_TAB_KEY, filterMethodsForTab, normalizeRechargeTabs, rechargeTabKey, tabIncludesMethod } from '@/utils/rechargeTabs'
 import { formatRechargeBonusNumber, normalizeRechargeBonusMode, normalizeRechargeBonusTiers, quoteRechargeBonus } from '@/utils/rechargeBonus'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import AmountInput from '@/components/payment/AmountInput.vue'
@@ -396,7 +397,8 @@ const loading = ref(true)
 const submitting = ref(false)
 const errorMessage = ref('')
 const errorHintMessage = ref('')
-const activeTab = ref<'recharge' | 'subscription'>('recharge')
+// 'recharge' = default single tab; 'recharge:<id>' = admin-configured recharge tab; 'subscription'.
+const activeTab = ref<string>(DEFAULT_RECHARGE_TAB_KEY)
 const amount = ref<number | null>(null)
 const selectedMethod = ref('')
 const selectedPlan = ref<SubscriptionPlan | null>(null)
@@ -610,9 +612,14 @@ const renderedBonusNotice = computed(() => {
 // 不再渲染「订阅」tab，只剩单个 tab 时顶部切换器也随之隐藏。
 const subscriptionEnabled = computed(() => resolveFeatureFlag(appStore.cachedPublicSettings, FeatureFlags.subscription))
 
+// 后台可配置多个充值 tab（自定义名称/排序/绑定支付方式）；未配置时保持默认单个「充值」tab。
+const rechargeTabs = computed(() => normalizeRechargeTabs(checkout.value.recharge_tabs))
 const tabs = computed(() => {
-  const result: { key: 'recharge' | 'subscription'; label: string }[] = []
-  if (!checkout.value.balance_disabled) result.push({ key: 'recharge', label: t('payment.tabTopUp') })
+  const result: { key: string; label: string }[] = []
+  if (!checkout.value.balance_disabled) {
+    if (rechargeTabs.value.length) rechargeTabs.value.forEach((tab) => result.push({ key: rechargeTabKey(tab), label: tab.name }))
+    else result.push({ key: DEFAULT_RECHARGE_TAB_KEY, label: t('payment.tabTopUp') })
+  }
   if (subscriptionEnabled.value) result.push({ key: 'subscription', label: t('payment.tabSubscribe') })
   return result
 })
@@ -622,12 +629,30 @@ const tabs = computed(() => {
 watch(tabs, (available) => {
   if (available.some((tab) => tab.key === activeTab.value)) return
   const leavingSubscription = activeTab.value === 'subscription'
-  activeTab.value = available[0]?.key ?? 'recharge'
+  activeTab.value = available[0]?.key ?? DEFAULT_RECHARGE_TAB_KEY
   if (leavingSubscription) selectedPlan.value = null
 })
 
 const visibleMethods = computed(() => getVisibleMethods(checkout.value.methods))
 const enabledMethods = computed(() => Object.keys(visibleMethods.value))
+const isRechargeTab = computed(() => activeTab.value === DEFAULT_RECHARGE_TAB_KEY || activeTab.value.startsWith('recharge:'))
+const activeRechargeTab = computed(() => rechargeTabs.value.find((tab) => rechargeTabKey(tab) === activeTab.value) ?? null)
+// Methods on the active recharge tab (all methods on the default tab); subscriptions always list every method.
+const rechargeMethods = computed(() => filterMethodsForTab(enabledMethods.value, activeRechargeTab.value))
+const activeMethods = computed(() => (isRechargeTab.value ? rechargeMethods.value : enabledMethods.value))
+function firstMethodByOrder(methods: string[]): string {
+  const order: readonly string[] = METHOD_ORDER
+  return [...methods].sort((a, b) => {
+    const ai = order.indexOf(a)
+    const bi = order.indexOf(b)
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
+  })[0] ?? ''
+}
+// Switching recharge tabs keeps the selection on a method the tab actually shows.
+watch(activeMethods, (methods) => {
+  if (paymentPhase.value !== 'select' || !methods.length || methods.includes(selectedMethod.value)) return
+  selectedMethod.value = firstMethodByOrder(methods)
+})
 const validAmount = computed(() => amount.value ?? 0)
 const balanceRechargeMultiplier = computed(() => {
   const multiplier = checkout.value.balance_recharge_multiplier
@@ -735,11 +760,12 @@ const showBonusRow = computed(() => bonusQuote.value.mode !== 'discount' && bonu
 const showCreditedBalance = computed(() => balanceRechargeMultiplier.value !== 1 || bonusQuote.value.percent > 0)
 
 const methodOptions = computed<PaymentMethodOption[]>(() =>
-  enabledMethods.value.map((type) => {
+  rechargeMethods.value.map((type) => {
     const ml = visibleMethods.value[type]
     return {
       type,
       display_name: ml?.display_name,
+      upstream_type: ml?.upstream_type,
       fee_rate: ml?.fee_rate ?? 0,
       available: ml?.available !== false && amountFitsMethod(payBaseAmount.value, type),
     }
@@ -762,7 +788,7 @@ const showActualPay = computed(() => feeRate.value > 0 || discountAmount.value >
 const amountError = computed(() => {
   if (validAmount.value <= 0) return ''
   // No method can handle this amount
-  if (!enabledMethods.value.some((m) => amountFitsMethod(payBaseAmount.value, m))) {
+  if (!rechargeMethods.value.some((m) => amountFitsMethod(payBaseAmount.value, m))) {
     return t('payment.amountNoMethod')
   }
   // Selected method can't handle this amount (but others can)
@@ -811,6 +837,7 @@ const subMethodOptions = computed<PaymentMethodOption[]>(() => {
     return {
       type,
       display_name: ml?.display_name,
+      upstream_type: ml?.upstream_type,
       fee_rate: ml?.fee_rate ?? 0,
       available: ml?.available !== false && amountFitsMethod(subscriptionTotalAmountForCurrency(price, currency), type),
     }
@@ -826,7 +853,7 @@ const canSubmitSubscription = computed(() =>
 // Auto-switch to first available method when current selection can't handle the amount
 watch(() => [payBaseAmount.value, selectedMethod.value] as const, ([amt, method]) => {
   if (amt <= 0 || amountFitsMethod(amt, method)) return
-  const available = enabledMethods.value.find((m) => amountFitsMethod(amt, m))
+  const available = activeMethods.value.find((m) => amountFitsMethod(amt, m))
   if (available) selectedMethod.value = available
 })
 
@@ -1242,14 +1269,13 @@ onMounted(async () => {
   try {
     const res = await paymentAPI.getCheckoutInfo()
     checkout.value = res.data
-    if (enabledMethods.value.length) {
-      const order: readonly string[] = METHOD_ORDER
-      const sorted = [...enabledMethods.value].sort((a, b) => {
-        const ai = order.indexOf(a)
-        const bi = order.indexOf(b)
-        return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
-      })
-      selectedMethod.value = sorted[0]
+    // Land on a tab that exists (custom recharge tabs replace the default key); ?tab=<id> opens a custom tab.
+    const queryTab = typeof route.query.tab === 'string' ? route.query.tab : ''
+    const queryTabKey = rechargeTabs.value.some((tab) => tab.id === queryTab) ? `recharge:${queryTab}` : ''
+    if (queryTabKey && tabs.value.some((tab) => tab.key === queryTabKey)) activeTab.value = queryTabKey
+    else if (!tabs.value.some((tab) => tab.key === activeTab.value) && tabs.value.length) activeTab.value = tabs.value[0].key
+    if (activeMethods.value.length) {
+      selectedMethod.value = firstMethodByOrder(activeMethods.value)
     }
     if (typeof window !== 'undefined') {
       if (hasWechatResumeQuery(route.query)) {
@@ -1270,6 +1296,8 @@ onMounted(async () => {
         const restoredMethod = normalizeVisibleMethod(restored.paymentType)
           || (visibleMethods.value[restored.paymentType] ? restored.paymentType : '')
         if (restoredMethod) {
+          const owningTab = rechargeTabs.value.find((tab) => tabIncludesMethod(tab, restoredMethod))
+          if (owningTab && restored.orderType !== 'subscription') activeTab.value = rechargeTabKey(owningTab)
           selectedMethod.value = restoredMethod
         }
       } else {

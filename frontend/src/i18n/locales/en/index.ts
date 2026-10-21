@@ -20,10 +20,12 @@ import requestTiming from './requestTiming'
 
 import autoConfig from './autoConfig'
 import upstreamOps from './upstreamOps'
+import upstreamModelPicker from './upstreamModelPicker'
 
 export default {
   autoConfig,
   upstreamOps,
+  upstreamModelPicker,
   priorityScheduling,
   qualityOps,
   controlledExperiments,

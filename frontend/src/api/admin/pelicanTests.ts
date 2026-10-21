@@ -9,6 +9,10 @@ import type { PaginatedResponse } from '@/types'
 export interface PelicanGroupTestConfig {
   question_kind?: string
   prompt: string
+  /** Rotation list; each run uses the next entry round-robin. */
+  prompts?: string[]
+  /** On result snapshots: the rotation slot the run used. */
+  prompt_index?: number
   reasoning_effort: string
   parallel_count: number
   model_id?: string
@@ -74,6 +78,8 @@ export interface PelicanGroupTestPlanInput {
   cron_expression: string
   enabled: boolean
   prompt: string
+  /** Optional rotation list (first entry = prompt). */
+  prompts?: string[]
   reasoning_effort: string
   parallel_count: number
 }

@@ -48,9 +48,20 @@ export interface PaymentConfig {
   stripe_publishable_key: string
 }
 
+/** 充值页自定义 tab：后台配置，绑定一个或多个支付方式 key（methods 的键，含 EasyPay customMethods type） */
+export interface RechargeTab {
+  id: string
+  name: string
+  sort_order: number
+  enabled: boolean
+  methods: string[]
+}
+
 export interface MethodLimit {
   currency?: string
   display_name?: string
+  /** EasyPay customMethods upstreamType (e.g. "binance"); empty for built-in methods */
+  upstream_type?: string
   daily_limit: number
   daily_used: number
   daily_remaining: number
@@ -84,6 +95,8 @@ export interface CheckoutInfoResponse {
   recharge_bonus_mode?: string
   /** 充值页金额区顶部的 Markdown 活动文案；空 = 不展示 */
   recharge_bonus_notice?: string
+  /** 充值页自定义 tab（仅启用项、已排序）；缺失/空数组 = 默认单个「充值」tab 显示全部方式 */
+  recharge_tabs?: RechargeTab[]
   help_text: string
   help_image_url: string
   stripe_publishable_key: string

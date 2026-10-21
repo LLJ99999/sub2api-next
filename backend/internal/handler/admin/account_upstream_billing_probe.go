@@ -120,3 +120,29 @@ func (h *AccountHandler) ProbeUpstreamBillingBatch(c *gin.Context) {
 	}
 	response.Success(c, gin.H{"results": h.upstreamBillingProbe.ProbeAccounts(c.Request.Context(), accountIDs)})
 }
+
+type upstreamBillingProbeBatchEnableRequest struct {
+	AccountIDs []int64 `json:"account_ids" binding:"required"`
+	Enabled    *bool   `json:"enabled" binding:"required"`
+}
+
+// BatchSetUpstreamBillingProbeEnabled toggles 上游变动监控 for many accounts at once
+// (accounts sharing a base URL are enabled once).
+// POST /api/v1/admin/accounts/upstream-billing-probe/batch-enable
+func (h *AccountHandler) BatchSetUpstreamBillingProbeEnabled(c *gin.Context) {
+	if h.upstreamBillingProbe == nil {
+		response.ErrorFrom(c, service.ErrUpstreamBillingProbeUnavailable)
+		return
+	}
+	var req upstreamBillingProbeBatchEnableRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	results, err := h.upstreamBillingProbe.BatchSetAccountEnabled(c.Request.Context(), req.AccountIDs, *req.Enabled)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"results": results})
+}

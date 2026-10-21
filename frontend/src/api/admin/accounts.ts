@@ -678,6 +678,28 @@ export async function syncUpstreamModelsPreview(params: SyncUpstreamPreviewParam
   return data
 }
 
+/**
+ * Union of the live upstream model lists of a group's active accounts
+ * (one account per base URL). Used by per-group model pickers.
+ */
+export async function syncGroupUpstreamModels(groupId: number): Promise<SyncUpstreamModelsResult> {
+  const { data } = await apiClient.post<SyncUpstreamModelsResult>('/admin/accounts/models/sync-upstream-by-group', { group_id: groupId })
+  return data
+}
+
+export interface UpstreamProbeBatchResult {
+  account_id: number
+  status: 'enabled' | 'disabled' | 'skipped_duplicate' | 'failed'
+  message?: string
+  duplicate_of?: number
+}
+
+/** Bulk toggle 上游变动监控 (upstream billing auto-probe). */
+export async function batchSetUpstreamBillingProbeEnabled(accountIds: number[], enabled: boolean): Promise<UpstreamProbeBatchResult[]> {
+  const { data } = await apiClient.post<{ results: UpstreamProbeBatchResult[] }>('/admin/accounts/upstream-billing-probe/batch-enable', { account_ids: accountIds, enabled })
+  return data?.results ?? []
+}
+
 export interface CRSPreviewAccount {
   crs_account_id: string
   kind: string
@@ -1487,6 +1509,8 @@ export const accountsAPI = {
   getModelReasoning,
   syncUpstreamModels,
   syncUpstreamModelsPreview,
+  syncGroupUpstreamModels,
+  batchSetUpstreamBillingProbeEnabled,
   generateAuthUrl,
   exchangeCode,
   refreshOpenAIToken,

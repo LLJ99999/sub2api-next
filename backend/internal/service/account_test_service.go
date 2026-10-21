@@ -282,7 +282,7 @@ func NewAccountTestService(
 	cfg *config.Config,
 	tlsFPProfileService *TLSFingerprintProfileService,
 ) *AccountTestService {
-	return &AccountTestService{
+	svc := &AccountTestService{
 		accountRepo:               accountRepo,
 		geminiTokenProvider:       geminiTokenProvider,
 		claudeTokenProvider:       claudeTokenProvider,
@@ -292,6 +292,14 @@ func NewAccountTestService(
 		cfg:                       cfg,
 		tlsFPProfileService:       tlsFPProfileService,
 	}
+	SetPassthroughUpstreamModelsFetcher(func(ctx context.Context, account *Account) ([]string, error) {
+		catalog, err := svc.SyncUpstreamModelCatalog(ctx, account)
+		if err != nil || catalog == nil {
+			return nil, err
+		}
+		return catalog.Models, nil
+	})
+	return svc
 }
 
 func (s *AccountTestService) validateUpstreamBaseURL(raw string) (string, error) {

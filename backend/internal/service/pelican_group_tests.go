@@ -93,13 +93,15 @@ type PelicanGroupTestResult struct {
 
 // PelicanGroupTestPlanInput is what an admin edits; the question is always the HTML drawing kind.
 type PelicanGroupTestPlanInput struct {
-	GroupID         int64  `json:"group_id"`
-	ModelID         string `json:"model_id"`
-	CronExpression  string `json:"cron_expression"`
-	Enabled         bool   `json:"enabled"`
-	Prompt          string `json:"prompt"`
-	ReasoningEffort string `json:"reasoning_effort"`
-	ParallelCount   int    `json:"parallel_count"`
+	GroupID        int64  `json:"group_id"`
+	ModelID        string `json:"model_id"`
+	CronExpression string `json:"cron_expression"`
+	Enabled        bool   `json:"enabled"`
+	Prompt         string `json:"prompt"`
+	// Prompts, when given, is the rotation list; each run uses the next one.
+	Prompts         []string `json:"prompts"`
+	ReasoningEffort string   `json:"reasoning_effort"`
+	ParallelCount   int      `json:"parallel_count"`
 }
 
 type PelicanGroupTestRepository interface {
@@ -153,6 +155,9 @@ type PelicanGroupTestService struct {
 	now        func() time.Time
 	// runs tracks background runs so tests can wait for them.
 	runs sync.WaitGroup
+	// promptSlots is the rotation fallback for repositories without NextPromptIndex.
+	promptMu    sync.Mutex
+	promptSlots map[int64]int64
 }
 
 func NewPelicanGroupTestService(
@@ -245,10 +250,11 @@ func (s *PelicanGroupTestService) planFromInput(ctx context.Context, input Pelic
 	if plan.ModelID == "" || len(plan.ModelID) > 100 {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "model is required (maximum 100 bytes)")
 	}
-	prompt := strings.TrimSpace(input.Prompt)
-	if prompt == "" || len(prompt) > 32000 {
-		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "prompt is required (maximum 32000 bytes)")
+	prompts, err := normalizePelicanPrompts(input.Prompt, input.Prompts)
+	if err != nil {
+		return nil, err
 	}
+	prompt := prompts[0]
 	effort := normalizePelicanReasoningEffort(input.ReasoningEffort)
 	if effort == "" {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "invalid reasoning effort")
@@ -271,7 +277,87 @@ func (s *PelicanGroupTestService) planFromInput(ctx context.Context, input Pelic
 	plan.NextRunAt = &next
 	plan.Enabled = input.Enabled
 	plan.PelicanConfig = &PelicanTestConfig{QuestionKind: "pelican", Prompt: prompt, ReasoningEffort: effort, ParallelCount: parallel, ModelID: plan.ModelID}
+	if len(prompts) > 1 {
+		plan.PelicanConfig.Prompts = prompts
+	}
 	return plan, nil
+}
+
+const (
+	pelicanGroupTestMaxPrompts     = 50
+	pelicanGroupTestMaxPromptBytes = 32000
+)
+
+// normalizePelicanPrompts merges the legacy single prompt with the rotation list:
+// blank entries are dropped, duplicates kept (an admin may weight a prompt).
+func normalizePelicanPrompts(single string, list []string) ([]string, error) {
+	out := make([]string, 0, len(list)+1)
+	for _, p := range list {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		if p := strings.TrimSpace(single); p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "prompt is required (maximum 32000 bytes)")
+	}
+	if len(out) > pelicanGroupTestMaxPrompts {
+		return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", fmt.Sprintf("at most %d prompts", pelicanGroupTestMaxPrompts))
+	}
+	for _, p := range out {
+		if len(p) > pelicanGroupTestMaxPromptBytes {
+			return nil, infraerrors.BadRequest("INVALID_PELICAN_GROUP_TEST", "prompt is required (maximum 32000 bytes)")
+		}
+	}
+	return out, nil
+}
+
+// pelicanPromptRotator is implemented by the SQL repository: it atomically hands out
+// the next rotation slot so restarts and replicas keep the round-robin order.
+type pelicanPromptRotator interface {
+	NextPromptIndex(ctx context.Context, planID int64) (int64, error)
+}
+
+// withRotatedPrompt returns a shallow plan copy whose config carries the prompt for
+// this run. Plans with a single prompt are returned unchanged.
+func (s *PelicanGroupTestService) withRotatedPrompt(ctx context.Context, plan *PelicanGroupTestPlan) *PelicanGroupTestPlan {
+	if plan == nil || plan.PelicanConfig == nil || len(plan.PelicanConfig.Prompts) < 2 {
+		return plan
+	}
+	var slot int64
+	if rotator, ok := s.repo.(pelicanPromptRotator); ok {
+		next, err := rotator.NextPromptIndex(ctx, plan.ID)
+		if err != nil {
+			logger.LegacyPrintf("service.pelican_group_test", "plan=%d prompt rotation failed: %v", plan.ID, err)
+		} else {
+			slot = next
+		}
+	} else {
+		slot = s.memoryPromptSlot(plan.ID)
+	}
+	prompts := plan.PelicanConfig.Prompts
+	index := int(((slot % int64(len(prompts))) + int64(len(prompts))) % int64(len(prompts)))
+	cfg := *plan.PelicanConfig
+	cfg.Prompt = prompts[index]
+	cfg.PromptIndex = &index
+	copied := *plan
+	copied.PelicanConfig = &cfg
+	return &copied
+}
+
+func (s *PelicanGroupTestService) memoryPromptSlot(planID int64) int64 {
+	s.promptMu.Lock()
+	defer s.promptMu.Unlock()
+	if s.promptSlots == nil {
+		s.promptSlots = map[int64]int64{}
+	}
+	slot := s.promptSlots[planID]
+	s.promptSlots[planID] = slot + 1
+	return slot
 }
 
 // RunNow starts a run right away, outside the schedule. It fails when a run is in progress.
@@ -360,6 +446,7 @@ func (s *PelicanGroupTestService) runScheduled(ctx context.Context, plan *Pelica
 func (s *PelicanGroupTestService) execute(plan *PelicanGroupTestPlan, until time.Time) {
 	runCtx, cancel := context.WithTimeout(context.Background(), pelicanGroupTestRunTimeout)
 	defer cancel()
+	plan = s.withRotatedPrompt(runCtx, plan)
 	results := s.runSamples(runCtx, plan)
 	// Persist with a fresh context so timeout failures are still recorded.
 	saveCtx, stop := context.WithTimeout(context.Background(), 30*time.Second)

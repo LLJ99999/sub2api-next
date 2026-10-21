@@ -47,4 +47,14 @@ describe('AccountBulkActionsBar', () => {
     await button!.trigger('click')
     expect(wrapper.emitted('probe-upstream-billing')).toHaveLength(1)
   })
+
+  it('emits the bulk upstream monitor and quality probe actions', async () => {
+    const wrapper = mount(AccountBulkActionsBar, {
+      props: { selectedIds: [1, 2], totalResults: 2, selectingAll: false, allResultsSelected: false }
+    })
+    await wrapper.get('[data-testid="bulk-upstream-billing-monitor"]').trigger('click')
+    await wrapper.get('[data-testid="bulk-upstream-quality-probe"]').trigger('click')
+    expect(wrapper.emitted('upstream-billing-monitor')).toHaveLength(1)
+    expect(wrapper.emitted('upstream-quality-probe')).toHaveLength(1)
+  })
 })

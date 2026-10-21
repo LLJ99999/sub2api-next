@@ -93,3 +93,7 @@ All endpoints live under `/api/v1/admin` and require admin privileges:
 - This feature depends on the freshness of probe snapshots: no events are generated when probes fail or are not enabled.
 - When first enabled there is no "previous snapshot", so no rate multiplier events are generated; comparison begins after the second successful probe.
 - If you also use Account Ops balance rules, we recommend keeping only one alerting method to avoid confusion (this feature already deduplicates automatically).
+
+## Bulk enable upstream change monitoring
+
+Rate / balance data comes from "upstream billing auto-probe". Select accounts in Account Management and use "Upstream Change Monitor" in the bulk bar to turn the auto-probe on or off for all of them; the dialog shows a result per row. When enabling, only the first account per upstream base URL is enabled and the rest are marked "Skipped (duplicate upstream)" with the first account named, so one upstream is not probed twice; disabling applies to every selected account. API: `POST /api/v1/admin/accounts/upstream-billing-probe/batch-enable` with `{"account_ids": [...], "enabled": true}`, 1–500 accounts per call, returning a `status` per account (`enabled` / `disabled` / `skipped_duplicate` / `failed`). The existing "Probe Upstream Rate & Balance" button (one immediate probe, up to 20 accounts) is unchanged.

@@ -144,3 +144,39 @@ func (qualityNoopUpstream) Do(*http.Request, string, int64, int) (*http.Response
 func (qualityNoopUpstream) DoWithTLS(*http.Request, string, int64, int, *tlsfingerprint.Profile) (*http.Response, error) {
 	return nil, io.EOF
 }
+
+func TestUpstreamQualityCustomPromptSkipsPongCheck(t *testing.T) {
+	req := buildUpstreamQualityProbeRequestWithPrompt(UpstreamQualityProbeProtocolChat, "m", "qp_canary_abc", "  What is 2+2?  ")
+	require.True(t, req.custom)
+	require.Contains(t, string(req.body), "What is 2+2?")
+	require.NotContains(t, string(req.body), "pong")
+	m := &upstreamQualityStreamMetrics{}
+	m.text.WriteString("4")
+	require.NotContains(t, upstreamQualityAnomalies(req, "m", m, 200), UpstreamQualityAnomalyUnexpectedText)
+
+	plain := buildUpstreamQualityProbeRequest(UpstreamQualityProbeProtocolChat, "m", "qp_canary_abc")
+	require.False(t, plain.custom)
+	require.Contains(t, upstreamQualityAnomalies(plain, "m", m, 200), UpstreamQualityAnomalyUnexpectedText)
+}
+
+func TestUpstreamQualityPromptRotation(t *testing.T) {
+	require.Equal(t, "", pickUpstreamQualityPrompt(nil, 3))
+	prompts := []string{"a", "b", "c"}
+	var got []string
+	for slot := int64(0); slot < 4; slot++ {
+		got = append(got, pickUpstreamQualityPrompt(prompts, slot))
+	}
+	require.Equal(t, []string{"a", "b", "c", "a"}, got)
+
+	out, err := normalizeUpstreamQualityPrompts([]string{" x ", "", "y"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"x", "y"}, out)
+	_, err = normalizeUpstreamQualityPrompts(make([]string, 0))
+	require.NoError(t, err)
+	many := make([]string, upstreamQualityProbeMaxPrompts+1)
+	for i := range many {
+		many[i] = "p"
+	}
+	_, err = normalizeUpstreamQualityPrompts(many)
+	require.Error(t, err)
+}

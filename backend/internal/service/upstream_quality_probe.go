@@ -90,15 +90,20 @@ func ValidateUpstreamQualityProbeSettings(s *UpstreamQualityProbeSettings) error
 }
 
 type UpstreamQualityProbeConfig struct {
-	AccountID       int64      `json:"account_id"`
-	AccountName     string     `json:"account_name,omitempty"`
-	Platform        string     `json:"platform,omitempty"`
-	Enabled         bool       `json:"enabled"`
-	Model           string     `json:"model"`
-	IntervalMinutes int        `json:"interval_minutes"`
-	NextRunAt       *time.Time `json:"next_run_at"`
-	LastRunAt       *time.Time `json:"last_run_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	AccountID       int64  `json:"account_id"`
+	AccountName     string `json:"account_name,omitempty"`
+	Platform        string `json:"platform,omitempty"`
+	Enabled         bool   `json:"enabled"`
+	Model           string `json:"model"`
+	IntervalMinutes int    `json:"interval_minutes"`
+	// Prompts are optional custom probe prompts used round-robin; with any set
+	// the fixed "reply pong" content check is disabled.
+	Prompts []string `json:"prompts"`
+	// PromptSlot is the rotation slot a claimed run uses (scheduler only).
+	PromptSlot int64      `json:"-"`
+	NextRunAt  *time.Time `json:"next_run_at"`
+	LastRunAt  *time.Time `json:"last_run_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
 	// Latest is filled by list endpoints.
 	Latest *UpstreamQualityProbeResult `json:"latest,omitempty"`
 }
@@ -227,6 +232,17 @@ func (s *UpstreamQualityProbeService) SaveConfig(ctx context.Context, cfg Upstre
 	if cfg.Model == "" || utf8.RuneCountInString(cfg.Model) > upstreamQualityProbeMaxModelRunes || strings.ContainsAny(cfg.Model, "\r\n\t ") {
 		return nil, infraerrors.BadRequest("UPSTREAM_QUALITY_PROBE_INVALID", "model is required and must be one model name")
 	}
+	if cfg.Prompts == nil {
+		// Omitted prompts keep what is saved (bulk enable/disable must not wipe them).
+		if current, err := s.repo.GetConfig(ctx, cfg.AccountID); err == nil && current != nil {
+			cfg.Prompts = current.Prompts
+		}
+	}
+	prompts, err := normalizeUpstreamQualityPrompts(cfg.Prompts)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Prompts = prompts
 	if _, err := s.loadProbeAccount(ctx, cfg.AccountID); err != nil {
 		return nil, err
 	}
@@ -286,13 +302,58 @@ func (s *UpstreamQualityProbeService) AccountView(ctx context.Context, accountID
 	return &UpstreamQualityProbeAccountView{Config: cfg, Results: results}, nil
 }
 
+const (
+	upstreamQualityProbeMaxPrompts     = 20
+	upstreamQualityProbeMaxPromptRunes = 8000
+	// upstreamQualityProbeCustomMaxTokens leaves room for a real answer to a custom prompt.
+	upstreamQualityProbeCustomMaxTokens = 512
+)
+
+func normalizeUpstreamQualityPrompts(in []string) ([]string, error) {
+	out := make([]string, 0, len(in))
+	for _, p := range in {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if utf8.RuneCountInString(p) > upstreamQualityProbeMaxPromptRunes {
+			return nil, infraerrors.BadRequest("UPSTREAM_QUALITY_PROBE_INVALID", fmt.Sprintf("each prompt must be at most %d characters", upstreamQualityProbeMaxPromptRunes))
+		}
+		out = append(out, p)
+	}
+	if len(out) > upstreamQualityProbeMaxPrompts {
+		return nil, infraerrors.BadRequest("UPSTREAM_QUALITY_PROBE_INVALID", fmt.Sprintf("at most %d prompts", upstreamQualityProbeMaxPrompts))
+	}
+	return out, nil
+}
+
+func pickUpstreamQualityPrompt(prompts []string, slot int64) string {
+	if len(prompts) == 0 {
+		return ""
+	}
+	n := int64(len(prompts))
+	return prompts[((slot%n)+n)%n]
+}
+
+type upstreamQualityPromptRotator interface {
+	NextPromptIndex(ctx context.Context, accountID int64) (int64, error)
+}
+
 // RunNow probes one account immediately with an explicit model. It ignores
 // the global switch because an admin asked for it, and records the result.
 func (s *UpstreamQualityProbeService) RunNow(ctx context.Context, accountID int64, model string) (*UpstreamQualityProbeResult, error) {
 	model = strings.TrimSpace(model)
-	if model == "" {
-		if cfg, err := s.repo.GetConfig(ctx, accountID); err == nil && cfg != nil {
+	var prompt string
+	if cfg, err := s.repo.GetConfig(ctx, accountID); err == nil && cfg != nil {
+		if model == "" {
 			model = cfg.Model
+		}
+		if len(cfg.Prompts) > 0 {
+			var slot int64
+			if rotator, ok := s.repo.(upstreamQualityPromptRotator); ok {
+				slot, _ = rotator.NextPromptIndex(ctx, accountID)
+			}
+			prompt = pickUpstreamQualityPrompt(cfg.Prompts, slot)
 		}
 	}
 	if model == "" || strings.ContainsAny(model, "\r\n\t ") || utf8.RuneCountInString(model) > upstreamQualityProbeMaxModelRunes {
@@ -303,7 +364,7 @@ func (s *UpstreamQualityProbeService) RunNow(ctx context.Context, accountID int6
 		return nil, err
 	}
 	settings, _ := s.GetSettings(ctx)
-	result := s.probe(ctx, account, model, settings)
+	result := s.probe(ctx, account, model, prompt, settings)
 	result.Trigger = "manual"
 	if err := s.repo.InsertResult(ctx, result); err != nil {
 		return nil, err
@@ -349,7 +410,7 @@ func (s *UpstreamQualityProbeService) RunDue(ctx context.Context, now time.Time)
 			if err != nil || !account.IsActive() {
 				return
 			}
-			result := s.probe(ctx, account, cfg.Model, settings)
+			result := s.probe(ctx, account, cfg.Model, pickUpstreamQualityPrompt(cfg.Prompts, cfg.PromptSlot), settings)
 			result.Trigger = "scheduled"
 			if err := s.repo.InsertResult(ctx, result); err != nil {
 				logger.LegacyPrintf("service.upstream_quality_probe", "insert result failed: account_id=%d err=%v", cfg.AccountID, err)
@@ -367,6 +428,8 @@ type upstreamQualityProbeRequest struct {
 	body      []byte
 	canary    string
 	estimated int64
+	// custom marks a run with an admin prompt: the reply is not checked for "pong".
+	custom bool
 }
 
 func newUpstreamQualityProbeCanary() string {
@@ -380,13 +443,26 @@ func newUpstreamQualityProbeCanary() string {
 // up in the text, means the upstream (or a layer in front of it) is calling
 // tools on its own or leaking the request configuration back.
 func buildUpstreamQualityProbeRequest(protocol, model, canary string) upstreamQualityProbeRequest {
+	return buildUpstreamQualityProbeRequestWithPrompt(protocol, model, canary, "")
+}
+
+// buildUpstreamQualityProbeRequestWithPrompt sends an admin's custom prompt in
+// place of ping/pong; the canary tool stays so tool-call/echo checks still apply.
+func buildUpstreamQualityProbeRequestWithPrompt(protocol, model, canary, prompt string) upstreamQualityProbeRequest {
 	system := "You are a connectivity check. Reply with exactly the single word: pong. Do not call any tool."
 	user := "ping"
+	maxTokens := upstreamQualityProbeMaxTokens
+	custom := strings.TrimSpace(prompt) != ""
+	if custom {
+		system = "Answer the user's message directly. Do not call any tool."
+		user = strings.TrimSpace(prompt)
+		maxTokens = upstreamQualityProbeCustomMaxTokens
+	}
 	toolDesc := "Internal diagnostic tool. Never call this tool."
 	var payload map[string]any
 	if protocol == UpstreamQualityProbeProtocolMessages {
 		payload = map[string]any{
-			"model": model, "max_tokens": upstreamQualityProbeMaxTokens, "stream": true, "system": system,
+			"model": model, "max_tokens": maxTokens, "stream": true, "system": system,
 			"messages": []map[string]any{{"role": "user", "content": user}},
 			"tools": []map[string]any{{
 				"name": canary, "description": toolDesc,
@@ -396,7 +472,7 @@ func buildUpstreamQualityProbeRequest(protocol, model, canary string) upstreamQu
 		}
 	} else {
 		payload = map[string]any{
-			"model": model, "max_tokens": upstreamQualityProbeMaxTokens, "stream": true,
+			"model": model, "max_tokens": maxTokens, "stream": true,
 			"stream_options": map[string]any{"include_usage": true},
 			"messages":       []map[string]any{{"role": "system", "content": system}, {"role": "user", "content": user}},
 			"tools": []map[string]any{{"type": "function", "function": map[string]any{
@@ -407,7 +483,7 @@ func buildUpstreamQualityProbeRequest(protocol, model, canary string) upstreamQu
 		}
 	}
 	body, _ := json.Marshal(payload)
-	return upstreamQualityProbeRequest{protocol: protocol, body: body, canary: canary, estimated: estimateUpstreamQualityInputTokens(system, user, canary, toolDesc)}
+	return upstreamQualityProbeRequest{protocol: protocol, body: body, canary: canary, custom: custom, estimated: estimateUpstreamQualityInputTokens(system, user, canary, toolDesc)}
 }
 
 // estimateUpstreamQualityInputTokens is a deliberately rough local estimate:
@@ -664,7 +740,7 @@ func upstreamQualityAnomalies(req upstreamQualityProbeRequest, requestedModel st
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" && len(m.toolCalls) == 0 {
 		out = append(out, UpstreamQualityAnomalyEmptyOutput)
-	} else if trimmed != "" && !strings.Contains(strings.ToLower(trimmed), upstreamQualityProbeExpected) {
+	} else if trimmed != "" && !req.custom && !strings.Contains(strings.ToLower(trimmed), upstreamQualityProbeExpected) {
 		out = append(out, UpstreamQualityAnomalyUnexpectedText)
 	}
 	return out
@@ -677,7 +753,7 @@ func (s *UpstreamQualityProbeService) currentTime() time.Time {
 	return time.Now()
 }
 
-func (s *UpstreamQualityProbeService) probe(ctx context.Context, account *Account, model string, settings UpstreamQualityProbeSettings) *UpstreamQualityProbeResult {
+func (s *UpstreamQualityProbeService) probe(ctx context.Context, account *Account, model, prompt string, settings UpstreamQualityProbeSettings) *UpstreamQualityProbeResult {
 	protocol := UpstreamQualityProbeProtocol(account)
 	upstreamModel := account.GetMappedModel(model)
 	if upstreamModel == "" {
@@ -687,7 +763,7 @@ func (s *UpstreamQualityProbeService) probe(ctx context.Context, account *Accoun
 		AccountID: account.ID, Protocol: protocol, Model: model, Status: UpstreamQualityProbeStatusFailed,
 		Anomalies: []string{}, CreatedAt: s.currentTime().UTC(),
 	}
-	req := buildUpstreamQualityProbeRequest(protocol, upstreamModel, newUpstreamQualityProbeCanary())
+	req := buildUpstreamQualityProbeRequestWithPrompt(protocol, upstreamModel, newUpstreamQualityProbeCanary(), prompt)
 	result.EstimatedInputTokens = req.estimated
 	httpReq, proxyURL, err := s.buildHTTPRequest(ctx, account, req)
 	if err != nil {

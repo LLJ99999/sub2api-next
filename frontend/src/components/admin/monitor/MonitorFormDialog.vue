@@ -126,7 +126,15 @@
       </div>
 
       <div v-if="usesProbePart">
-        <label class="input-label">{{ t('admin.channelMonitor.form.primaryModel') }} <span class="text-red-500">*</span></label>
+        <div class="flex items-center justify-between">
+          <label class="input-label">{{ t('admin.channelMonitor.form.primaryModel') }} <span class="text-red-500">*</span></label>
+          <UpstreamModelPicker
+            :credentials="monitorPickerCredentials"
+            multiple
+            :current="[form.primary_model, ...form.extra_models].filter(Boolean)"
+            @pick="applyPickedMonitorModels"
+          />
+        </div>
         <input
           v-model="form.primary_model"
           data-testid="monitor-primary-model"
@@ -233,6 +241,7 @@
 </template>
 
 <script setup lang="ts">
+import UpstreamModelPicker from '@/components/admin/common/UpstreamModelPicker.vue'
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -881,5 +890,25 @@ async function handleSubmit() {
   } finally {
     submitting.value = false
   }
+}
+
+// 从上游拉取模型: uses the endpoint + key typed above (a saved monitor's key is
+// masked, so re-enter it to fetch). The first pick fills the primary model when
+// it is empty; the rest become extra models.
+const monitorPickerCredentials = computed(() => {
+  const key = form.api_key.trim()
+  const endpoint = form.endpoint.trim()
+  if (!key || !endpoint) return null
+  return { platform: form.provider, type: 'apikey', base_url: endpoint, api_key: key }
+})
+
+function applyPickedMonitorModels(models: string[]) {
+  const rest = [...models]
+  if (!form.primary_model.trim() && rest.length) form.primary_model = rest.shift() as string
+  const extras = new Set(form.extra_models)
+  for (const model of rest) {
+    if (model !== form.primary_model) extras.add(model)
+  }
+  form.extra_models = [...extras]
 }
 </script>

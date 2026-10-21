@@ -298,6 +298,7 @@ type SystemSettings struct {
 	PaymentRechargeBonusTiers  []RechargeBonusTier `json:"payment_recharge_bonus_tiers"`
 	PaymentRechargeBonusMode   string              `json:"payment_recharge_bonus_mode"`
 	PaymentRechargeBonusNotice string              `json:"payment_recharge_bonus_notice"`
+	PaymentRechargeTabs        []RechargeTab       `json:"payment_recharge_tabs"`
 	PaymentLoadBalanceStrat    string              `json:"payment_load_balance_strategy"`
 	PaymentProductNamePrefix   string              `json:"payment_product_name_prefix"`
 	PaymentProductNameSuffix   string              `json:"payment_product_name_suffix"`
@@ -687,4 +688,13 @@ func ParseCustomEndpoints(raw string) []CustomEndpoint {
 		return []CustomEndpoint{}
 	}
 	return items
+}
+
+// RechargeTab is one admin-configured tab of the user recharge page.
+type RechargeTab struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	SortOrder int      `json:"sort_order"`
+	Enabled   bool     `json:"enabled"`
+	Methods   []string `json:"methods"`
 }

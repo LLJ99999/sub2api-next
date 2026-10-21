@@ -61,3 +61,22 @@ describe('PaymentMethodSelector', () => {
     expect(button.classes()).not.toContain('border-[#02A9F1]')
   })
 })
+
+describe('PaymentMethodSelector binance icon', () => {
+  it('uses the binance icon when the type or EasyPay upstreamType mentions binance', () => {
+    const wrapper = mount(PaymentMethodSelector, {
+      props: {
+        selected: 'crypto',
+        methods: [
+          { type: 'crypto', display_name: 'Crypto', upstream_type: 'binance', fee_rate: 0, available: true },
+          { type: 'binance_usdt', display_name: 'USDT', fee_rate: 0, available: true },
+          { type: 'ldc', display_name: 'LDC', fee_rate: 0, available: true },
+        ],
+      },
+    })
+    const srcs = wrapper.findAll('img').map((img) => img.attributes('src') || '')
+    expect(srcs[0]).toContain('binance')
+    expect(srcs[1]).toContain('binance')
+    expect(srcs[2]).not.toContain('binance')
+  })
+})

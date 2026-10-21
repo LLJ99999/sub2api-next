@@ -185,6 +185,8 @@
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
           @probe-upstream-billing="handleBulkProbeUpstreamBilling"
+          @upstream-billing-monitor="openUpstreamProbeBulk('billing')"
+          @upstream-quality-probe="openUpstreamProbeBulk('quality')"
           @edit-selected="openBulkEditSelected"
           @edit-filtered="openBulkEditFiltered"
           @clear="clearSelection"
@@ -480,6 +482,14 @@
       @close="showBulkEdit = false"
       @updated="handleBulkUpdated"
     />
+    <UpstreamProbeBulkDialog
+      :show="upstreamProbeBulkKind !== null"
+      :kind="upstreamProbeBulkKind ?? 'billing'"
+      :account-ids="selIds"
+      :account-names="upstreamProbeBulkNames"
+      @close="upstreamProbeBulkKind = null"
+      @done="reload"
+    />
     <TempUnschedStatusModal :show="showTempUnsched" :account="tempUnschedAcc" @close="showTempUnsched = false" @reset="handleTempUnschedReset" />
     <ConfirmDialog :show="showDeleteDialog" :title="t('admin.accounts.deleteAccount')" :message="t('admin.accounts.deleteConfirm', { name: deletingAcc?.name })" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
     <ConfirmDialog :show="showCreateShadowDialog" :title="t('admin.accounts.createSparkShadow')" :message="t('admin.accounts.createSparkShadowConfirm', { name: creatingShadowAcc?.name })" @confirm="confirmCreateSparkShadow" @cancel="showCreateShadowDialog = false" />
@@ -518,6 +528,7 @@ import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrs
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
+import UpstreamProbeBulkDialog from '@/components/admin/account/UpstreamProbeBulkDialog.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
@@ -1962,6 +1973,17 @@ const handleBulkRefreshToken = async () => {
     appStore.showError(String(error))
   }
 }
+const upstreamProbeBulkKind = ref<'billing' | 'quality' | null>(null)
+const upstreamProbeBulkNames = computed<Record<number, string>>(() => {
+  const names: Record<number, string> = {}
+  accounts.value.forEach(account => { names[account.id] = account.name })
+  return names
+})
+const openUpstreamProbeBulk = (kind: 'billing' | 'quality') => {
+  if (selIds.value.length === 0) return
+  upstreamProbeBulkKind.value = kind
+}
+
 const handleBulkProbeUpstreamBilling = async () => {
   const accountIDs = [...selIds.value]
   if (accountIDs.length === 0) {

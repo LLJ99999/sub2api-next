@@ -109,3 +109,9 @@
 
 - 只为需要关注质量的中转上游开启，间隔 30–60 分钟足够观察趋势。
 - 若某上游持续出现 `upstream_model_mismatch` 或 `input_tokens_mismatch`，可结合「上游中转熔断」「上游变动提醒」一起排查是否被替换模型或倍率调整。
+
+## 11. 自定义题目轮换、模型选择器与批量开启
+
+- **题目轮换**：账号配置可填写 `prompts`（最多 20 条，每条 ≤ 8000 字符，空行忽略）。设置后每次探测（定时与「立即运行」）按顺序轮换使用下一条，游标 `prompt_rotation` 持久化在数据库（迁移 `322_upstream_quality_probe_prompts.sql`），重启或多实例不会打乱顺序。使用自定义题目时不再检查回答是否含 `pong`（不产生 `unexpected_answer`），输出上限放宽到 512 token；诱饵工具仍保留，`unexpected_tool_call` / `echoed_tool_config` 等检查照常。`prompts` 为空时保持原来的 ping/pong 探测。保存配置时省略 `prompts` 字段会保留已有题目（批量开关不会清空）。
+- **从上游拉取模型**：模型输入框旁的「从上游拉取」按钮会实时请求该账号上游的 `/v1/models`，列表可搜索、点选即可填入。同一个选择器也用于鹈鹕测智、渠道监控、分组模型白名单、账号测试与定时测试。按分组配置的页面调用 `POST /api/v1/admin/accounts/models/sync-upstream-by-group`（`{"group_id": N}`），汇总该分组中启用账号的模型（同一 Base URL 只请求一次，最多 8 个上游），失败账号只返回警告，不暴露密钥。
+- **批量开启**：账号管理勾选多个账号后，批量操作栏「上游质量探测」可一次性开启 / 关闭探测，并可统一指定模型与间隔（5–1440 分钟，留空模型则用各账号已有配置）。开启时同一上游 Base URL 只开启第一个账号，其余标记为「已跳过（上游重复）」并注明首个账号；关闭对全部选中账号生效。每行显示结果（已开启 / 已关闭 / 已跳过 / 失败）。接口：`POST /api/v1/admin/upstream-quality-probes/accounts/batch`，请求体 `{"account_ids": [...], "enabled": true, "model": "...", "interval_minutes": 60}`，单次 1–500 个账号。

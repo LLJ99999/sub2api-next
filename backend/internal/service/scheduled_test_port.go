@@ -19,8 +19,13 @@ type PelicanTestConfig struct {
 	QuestionKind       string         `json:"question_kind,omitempty"`
 	TestChannel        string         `json:"test_channel,omitempty"`
 	Prompt             string         `json:"prompt"`
-	ReasoningEffort    string         `json:"reasoning_effort"`
-	ParallelCount      int            `json:"parallel_count"`
+	// Prompts is an optional rotation list (鹈鹕测智 group tests). Each run uses the
+	// next entry round-robin; Prompt always mirrors the entry used (or the first one).
+	Prompts []string `json:"prompts,omitempty"`
+	// PromptIndex is filled on result snapshots: the rotation slot the run used.
+	PromptIndex     *int   `json:"prompt_index,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort"`
+	ParallelCount   int    `json:"parallel_count"`
 	// ModelID is recorded with each result so later edits do not relabel history.
 	ModelID string `json:"model_id,omitempty"`
 	// ModelIDs selects all models in a quality round; old plans use ModelID.

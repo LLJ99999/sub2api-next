@@ -152,6 +152,7 @@ func (h *PaymentHandler) GetCheckoutInfo(c *gin.Context) {
 		RechargeBonusTiers:            cfg.RechargeBonusTiers,
 		RechargeBonusMode:             cfg.RechargeBonusMode,
 		RechargeBonusNotice:           cfg.RechargeBonusNotice,
+		RechargeTabs:                  service.EnabledRechargeTabs(cfg.RechargeTabs),
 		HelpText:                      cfg.HelpText,
 		HelpImageURL:                  cfg.HelpImageURL,
 		StripePublishableKey:          cfg.StripePublishableKey,
@@ -172,6 +173,7 @@ type checkoutInfoResponse struct {
 	RechargeBonusTiers            []service.RechargeBonusTier     `json:"recharge_bonus_tiers"`
 	RechargeBonusMode             string                          `json:"recharge_bonus_mode"`
 	RechargeBonusNotice           string                          `json:"recharge_bonus_notice"`
+	RechargeTabs                  []service.RechargeTab           `json:"recharge_tabs"`
 	HelpText                      string                          `json:"help_text"`
 	HelpImageURL                  string                          `json:"help_image_url"`
 	StripePublishableKey          string                          `json:"stripe_publishable_key"`

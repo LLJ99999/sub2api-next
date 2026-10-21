@@ -33,6 +33,7 @@ func (s *PaymentConfigService) GetAvailableMethodLimits(ctx context.Context) (*M
 		}
 		ml := pcAggregateMethodLimits(pt, insts)
 		ml.DisplayName = s.pcAggregateMethodDisplayName(pt, insts)
+		ml.UpstreamType = s.pcAggregateMethodUpstreamType(pt, insts)
 		ml.Currency = currency
 		resp.Methods[ml.PaymentType] = ml
 	}
@@ -167,8 +168,9 @@ func (s *PaymentConfigService) pcInstancePaymentCurrency(inst *dbent.PaymentProv
 }
 
 type easyPayCustomMethodDisplayConfig struct {
-	Type        string `json:"type"`
-	DisplayName string `json:"displayName"`
+	Type         string `json:"type"`
+	UpstreamType string `json:"upstreamType"`
+	DisplayName  string `json:"displayName"`
 }
 
 func (s *PaymentConfigService) pcAggregateMethodDisplayName(pt string, instances []*dbent.PaymentProviderInstance) string {
@@ -185,9 +187,34 @@ func (s *PaymentConfigService) pcAggregateMethodDisplayName(pt string, instances
 	return ""
 }
 
-func (s *PaymentConfigService) pcInstanceEasyPayCustomMethodDisplayName(inst *dbent.PaymentProviderInstance, pt string) string {
-	if inst == nil || inst.ProviderKey != payment.TypeEasyPay {
+// pcAggregateMethodUpstreamType returns the first EasyPay customMethods
+// upstreamType configured for pt among the instances.
+func (s *PaymentConfigService) pcAggregateMethodUpstreamType(pt string, instances []*dbent.PaymentProviderInstance) string {
+	pt = strings.TrimSpace(pt)
+	if pt == "" {
 		return ""
+	}
+	for _, inst := range instances {
+		if method, ok := s.pcInstanceEasyPayCustomMethod(inst, pt); ok {
+			if upstream := strings.TrimSpace(method.UpstreamType); upstream != "" {
+				return upstream
+			}
+		}
+	}
+	return ""
+}
+
+func (s *PaymentConfigService) pcInstanceEasyPayCustomMethodDisplayName(inst *dbent.PaymentProviderInstance, pt string) string {
+	method, ok := s.pcInstanceEasyPayCustomMethod(inst, pt)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(method.DisplayName)
+}
+
+func (s *PaymentConfigService) pcInstanceEasyPayCustomMethod(inst *dbent.PaymentProviderInstance, pt string) (easyPayCustomMethodDisplayConfig, bool) {
+	if inst == nil || inst.ProviderKey != payment.TypeEasyPay {
+		return easyPayCustomMethodDisplayConfig{}, false
 	}
 	cfg := map[string]string{}
 	if s != nil {
@@ -198,19 +225,19 @@ func (s *PaymentConfigService) pcInstanceEasyPayCustomMethodDisplayName(inst *db
 	}
 	raw := strings.TrimSpace(cfg["customMethods"])
 	if raw == "" {
-		return ""
+		return easyPayCustomMethodDisplayConfig{}, false
 	}
 
 	var methods []easyPayCustomMethodDisplayConfig
 	if err := json.Unmarshal([]byte(raw), &methods); err != nil {
-		return ""
+		return easyPayCustomMethodDisplayConfig{}, false
 	}
 	for _, method := range methods {
 		if strings.TrimSpace(method.Type) == pt {
-			return strings.TrimSpace(method.DisplayName)
+			return method, true
 		}
 	}
-	return ""
+	return easyPayCustomMethodDisplayConfig{}, false
 }
 
 // pcGroupByPaymentType groups instances by user-facing payment type.

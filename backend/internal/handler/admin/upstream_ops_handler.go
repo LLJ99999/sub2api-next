@@ -172,6 +172,8 @@ type upstreamQualityConfigRequest struct {
 	Enabled         bool   `json:"enabled"`
 	Model           string `json:"model"`
 	IntervalMinutes int    `json:"interval_minutes"`
+	// Prompts: omitted keeps the saved prompts; [] clears them.
+	Prompts []string `json:"prompts"`
 }
 
 func (h *UpstreamOpsHandler) SaveQualityAccount(c *gin.Context) {
@@ -185,7 +187,7 @@ func (h *UpstreamOpsHandler) SaveQualityAccount(c *gin.Context) {
 		return
 	}
 	cfg, err := h.quality.SaveConfig(c.Request.Context(), service.UpstreamQualityProbeConfig{
-		AccountID: id, Enabled: req.Enabled, Model: req.Model, IntervalMinutes: req.IntervalMinutes,
+		AccountID: id, Enabled: req.Enabled, Model: req.Model, IntervalMinutes: req.IntervalMinutes, Prompts: req.Prompts,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -248,4 +250,28 @@ func (h *UpstreamOpsHandler) UpdateTransitSettings(c *gin.Context) {
 		return
 	}
 	response.Success(c, settings)
+}
+
+type upstreamQualityBatchRequest struct {
+	AccountIDs      []int64 `json:"account_ids" binding:"required"`
+	Enabled         *bool   `json:"enabled" binding:"required"`
+	Model           string  `json:"model"`
+	IntervalMinutes int     `json:"interval_minutes"`
+}
+
+// BatchQualityAccounts turns 上游质量探测 on/off for many accounts (one per base URL
+// when enabling); saved model, interval and prompts are kept.
+// POST /api/v1/admin/upstream-quality-probes/accounts/batch
+func (h *UpstreamOpsHandler) BatchQualityAccounts(c *gin.Context) {
+	var req upstreamQualityBatchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	results, err := h.quality.BatchSetEnabled(c.Request.Context(), req.AccountIDs, *req.Enabled, req.Model, req.IntervalMinutes)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"results": results})
 }

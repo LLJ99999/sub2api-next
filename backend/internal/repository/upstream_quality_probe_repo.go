@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -16,12 +17,14 @@ func NewUpstreamQualityProbeRepository(db *sql.DB) service.UpstreamQualityProbeR
 	return &upstreamQualityProbeRepository{db: db}
 }
 
-const upstreamQualityConfigColumns = `c.account_id, COALESCE(a.name, ''), COALESCE(a.platform, ''), c.enabled, c.model, c.interval_minutes, c.next_run_at, c.last_run_at, c.updated_at`
+const upstreamQualityConfigColumns = `c.account_id, COALESCE(a.name, ''), COALESCE(a.platform, ''), c.enabled, c.model, c.interval_minutes, c.next_run_at, c.last_run_at, c.updated_at, COALESCE(c.prompts, '[]'::jsonb)`
 
 func scanUpstreamQualityConfig(row interface{ Scan(...any) error }) (service.UpstreamQualityProbeConfig, error) {
 	var cfg service.UpstreamQualityProbeConfig
 	var next, last sql.NullTime
-	err := row.Scan(&cfg.AccountID, &cfg.AccountName, &cfg.Platform, &cfg.Enabled, &cfg.Model, &cfg.IntervalMinutes, &next, &last, &cfg.UpdatedAt)
+	var prompts []byte
+	err := row.Scan(&cfg.AccountID, &cfg.AccountName, &cfg.Platform, &cfg.Enabled, &cfg.Model, &cfg.IntervalMinutes, &next, &last, &cfg.UpdatedAt, &prompts)
+	cfg.Prompts = decodeQualityPrompts(prompts)
 	if next.Valid {
 		t := next.Time
 		cfg.NextRunAt = &t
@@ -45,14 +48,44 @@ FROM upstream_quality_probe_configs c LEFT JOIN accounts a ON a.id = c.account_i
 	return &cfg, nil
 }
 
+func decodeQualityPrompts(raw []byte) []string {
+	out := []string{}
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &out)
+	}
+	if out == nil {
+		out = []string{}
+	}
+	return out
+}
+
+func encodeQualityPrompts(prompts []string) string {
+	if len(prompts) == 0 {
+		return "[]"
+	}
+	b, err := json.Marshal(prompts)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
+}
+
 func (r *upstreamQualityProbeRepository) UpsertConfig(ctx context.Context, cfg *service.UpstreamQualityProbeConfig) error {
 	_, err := r.db.ExecContext(ctx, `
-INSERT INTO upstream_quality_probe_configs (account_id, enabled, model, interval_minutes, next_run_at, updated_at)
-VALUES ($1, $2, $3, $4, NULL, NOW())
+INSERT INTO upstream_quality_probe_configs (account_id, enabled, model, interval_minutes, prompts, next_run_at, updated_at)
+VALUES ($1, $2, $3, $4, $5::jsonb, NULL, NOW())
 ON CONFLICT (account_id) DO UPDATE SET enabled = EXCLUDED.enabled, model = EXCLUDED.model,
-  interval_minutes = EXCLUDED.interval_minutes, next_run_at = NULL, updated_at = NOW()`,
-		cfg.AccountID, cfg.Enabled, cfg.Model, cfg.IntervalMinutes)
+  interval_minutes = EXCLUDED.interval_minutes, prompts = EXCLUDED.prompts, next_run_at = NULL, updated_at = NOW()`,
+		cfg.AccountID, cfg.Enabled, cfg.Model, cfg.IntervalMinutes, encodeQualityPrompts(cfg.Prompts))
 	return err
+}
+
+// NextPromptIndex hands out the account's next custom-prompt rotation slot (manual runs).
+func (r *upstreamQualityProbeRepository) NextPromptIndex(ctx context.Context, accountID int64) (int64, error) {
+	var slot int64
+	err := r.db.QueryRowContext(ctx, `UPDATE upstream_quality_probe_configs SET prompt_rotation = prompt_rotation + 1
+WHERE account_id = $1 RETURNING prompt_rotation - 1`, accountID).Scan(&slot)
+	return slot, err
 }
 
 func (r *upstreamQualityProbeRepository) DeleteConfig(ctx context.Context, accountID int64) error {
@@ -91,9 +124,11 @@ WITH due AS (
 )
 UPDATE upstream_quality_probe_configs c
 SET running_until = $1 + $2 * INTERVAL '1 second',
-    next_run_at = $1 + c.interval_minutes * INTERVAL '1 minute'
+    next_run_at = $1 + c.interval_minutes * INTERVAL '1 minute',
+    prompt_rotation = c.prompt_rotation + CASE WHEN jsonb_array_length(COALESCE(c.prompts, '[]'::jsonb)) > 0 THEN 1 ELSE 0 END
 FROM due WHERE c.account_id = due.account_id
-RETURNING c.account_id, c.model, c.interval_minutes`, now, int64(lease/time.Second), limit)
+RETURNING c.account_id, c.model, c.interval_minutes, COALESCE(c.prompts, '[]'::jsonb),
+  c.prompt_rotation - CASE WHEN jsonb_array_length(COALESCE(c.prompts, '[]'::jsonb)) > 0 THEN 1 ELSE 0 END`, now, int64(lease/time.Second), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -101,9 +136,11 @@ RETURNING c.account_id, c.model, c.interval_minutes`, now, int64(lease/time.Seco
 	out := []service.UpstreamQualityProbeConfig{}
 	for rows.Next() {
 		var cfg service.UpstreamQualityProbeConfig
-		if err := rows.Scan(&cfg.AccountID, &cfg.Model, &cfg.IntervalMinutes); err != nil {
+		var prompts []byte
+		if err := rows.Scan(&cfg.AccountID, &cfg.Model, &cfg.IntervalMinutes, &prompts, &cfg.PromptSlot); err != nil {
 			return nil, err
 		}
+		cfg.Prompts = decodeQualityPrompts(prompts)
 		cfg.Enabled = true
 		out = append(out, cfg)
 	}

@@ -142,10 +142,25 @@ export interface UpstreamQualityProbeConfig {
   enabled: boolean
   model: string
   interval_minutes: number
+  /** Optional custom prompts used round-robin; disables the pong check. */
+  prompts?: string[]
   next_run_at: string | null
   last_run_at: string | null
   updated_at: string
   latest?: UpstreamQualityProbeResult | null
+}
+
+export interface UpstreamQualityBatchResult {
+  account_id: number
+  status: 'enabled' | 'disabled' | 'skipped_duplicate' | 'failed'
+  message?: string
+  duplicate_of?: number
+}
+
+/** Bulk toggle 上游质量探测; saved model/interval/prompts are kept per account. */
+export async function batchSetUpstreamQualityAccounts(body: { account_ids: number[]; enabled: boolean; model?: string; interval_minutes?: number }): Promise<UpstreamQualityBatchResult[]> {
+  const { data } = await apiClient.post<{ results: UpstreamQualityBatchResult[] }>('/admin/upstream-quality-probes/accounts/batch', body)
+  return data?.results ?? []
 }
 
 export interface UpstreamQualityProbeAccountView {
@@ -173,7 +188,7 @@ export async function getUpstreamQualityAccount(accountId: number, limit = 100):
   return { config: data?.config ?? null, results: data?.results ?? [] }
 }
 
-export async function saveUpstreamQualityAccount(accountId: number, body: { enabled: boolean; model: string; interval_minutes: number }): Promise<UpstreamQualityProbeConfig> {
+export async function saveUpstreamQualityAccount(accountId: number, body: { enabled: boolean; model: string; interval_minutes: number; prompts?: string[] }): Promise<UpstreamQualityProbeConfig> {
   const { data } = await apiClient.put<UpstreamQualityProbeConfig>(`/admin/upstream-quality-probes/accounts/${accountId}`, body)
   return data
 }

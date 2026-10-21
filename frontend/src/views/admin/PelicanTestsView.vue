@@ -240,7 +240,10 @@
         </div>
         <div>
           <label class="field-label mt-0" for="pelican-test-model">{{ t('pelicanTests.editor.model') }}</label>
-          <input id="pelican-test-model" v-model.trim="editor.form.model_id" maxlength="100" class="input w-full" :placeholder="t('pelicanTests.editor.modelPlaceholder')" data-testid="pelican-test-model" />
+          <div class="flex items-center gap-2">
+            <input id="pelican-test-model" v-model.trim="editor.form.model_id" maxlength="100" class="input w-full" :placeholder="t('pelicanTests.editor.modelPlaceholder')" data-testid="pelican-test-model" />
+            <UpstreamModelPicker :group-id="editor.form.group_id" :current="editor.form.model_id ? [editor.form.model_id] : []" @pick="(models) => { if (editor && models[0]) editor.form.model_id = models[0] }" />
+          </div>
           <p class="field-hint">{{ t('pelicanTests.editor.modelHint') }}</p>
         </div>
         <div>
@@ -250,6 +253,15 @@
           </div>
           <textarea id="pelican-test-prompt" v-model="editor.form.prompt" rows="3" maxlength="32000" class="input w-full" data-testid="pelican-test-prompt" />
           <p class="field-hint">{{ t('pelicanTests.editor.promptHint') }}</p>
+          <div v-for="(_, index) in editor.extraPrompts" :key="index" class="mt-2 flex items-start gap-2">
+            <span class="mt-2 w-6 shrink-0 text-right text-xs text-gray-400">#{{ index + 2 }}</span>
+            <textarea v-model="editor.extraPrompts[index]" rows="2" maxlength="32000" class="input w-full" :data-testid="`pelican-test-extra-prompt-${index}`" />
+            <button type="button" class="link-button mt-2 shrink-0 text-xs" :data-testid="`pelican-test-remove-prompt-${index}`" @click="editor.extraPrompts.splice(index, 1)">{{ t('pelicanTests.editor.removePrompt') }}</button>
+          </div>
+          <div class="mt-2 flex items-center justify-between">
+            <button type="button" class="link-button text-xs" data-testid="pelican-test-add-prompt" :disabled="editor.extraPrompts.length >= 49" @click="editor.extraPrompts.push('')">+ {{ t('pelicanTests.editor.addPrompt') }}</button>
+            <span v-if="editor.extraPrompts.length" class="text-xs text-gray-500">{{ t('pelicanTests.editor.rotationHint', { count: editor.extraPrompts.length + 1 }) }}</span>
+          </div>
         </div>
         <div class="grid gap-4 sm:grid-cols-2">
           <div>
@@ -332,6 +344,7 @@
 </template>
 
 <script setup lang="ts">
+import UpstreamModelPicker from '@/components/admin/common/UpstreamModelPicker.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -398,7 +411,7 @@ const savingPlan = ref(false)
 const error = ref('')
 const notice = ref('')
 const pending = reactive<Record<number, string>>({})
-const editor = ref<{ id: number | null; groupName: string; form: PelicanGroupTestPlanInput; schedule: string } | null>(null)
+const editor = ref<{ id: number | null; groupName: string; form: PelicanGroupTestPlanInput; schedule: string; extraPrompts: string[] } | null>(null)
 const deleting = ref<PelicanGroupTestPlan | null>(null)
 const preview = ref<{ result: PelicanGroupTestResult; html: string; status: 'loading' | 'ready' | 'invalid' | 'error' } | null>(null)
 let alive = true
@@ -587,6 +600,8 @@ function inputFrom(plan: PelicanGroupTestPlan): PelicanGroupTestPlanInput {
     prompt: plan.pelican_config?.prompt || PELICAN_PROMPT,
     reasoning_effort: plan.pelican_config?.reasoning_effort || 'medium',
     parallel_count: plan.pelican_config?.parallel_count || 1,
+    // Keep the rotation list on quick toggles so pausing never drops prompts.
+    ...((plan.pelican_config?.prompts?.length ?? 0) > 1 ? { prompts: [...(plan.pelican_config?.prompts ?? [])] } : {}),
   }
 }
 
@@ -595,7 +610,11 @@ function openEditor(plan?: PelicanGroupTestPlan) {
     ? inputFrom(plan)
     : { group_id: 0, model_id: '', cron_expression: SCHEDULES[1].cron, enabled: true, prompt: PELICAN_PROMPT, reasoning_effort: 'medium', parallel_count: 1 }
   const schedule = SCHEDULES.some((preset) => preset.cron === form.cron_expression) ? form.cron_expression : 'custom'
-  editor.value = { id: plan?.id ?? null, groupName: plan?.group_name ?? '', form, schedule }
+  const rotation = plan?.pelican_config?.prompts ?? []
+  if (rotation.length > 1) form.prompt = rotation[0]
+  const extraPrompts = rotation.length > 1 ? rotation.slice(1) : []
+  delete form.prompts
+  editor.value = { id: plan?.id ?? null, groupName: plan?.group_name ?? '', form, schedule, extraPrompts }
   void loadGroups()
 }
 
@@ -609,7 +628,9 @@ async function savePlan() {
   }
   savingPlan.value = true
   try {
-    const input = { ...form, parallel_count: Number(form.parallel_count) || 1 }
+    const input: PelicanGroupTestPlanInput = { ...form, parallel_count: Number(form.parallel_count) || 1 }
+    const extras = current.extraPrompts.map((prompt) => prompt.trim()).filter(Boolean)
+    if (extras.length) input.prompts = [form.prompt.trim(), ...extras]
     if (current.id) {
       await pelicanTestsAPI.updatePlan(current.id, input)
       succeed(t('pelicanTests.editor.updated'))

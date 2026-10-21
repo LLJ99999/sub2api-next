@@ -622,6 +622,31 @@ export default {
       bulkSchedulableDisabled: 'Successfully disabled scheduling for {count} account(s)',
       bulkSchedulablePartial: 'Scheduling updated partially: {success} succeeded, {failed} failed',
       bulkSchedulableResultUnknown: 'Bulk scheduling result incomplete. Please retry or refresh.',
+      upstreamProbeBulk: {
+        billingButton: 'Upstream Change Monitor',
+        qualityButton: 'Upstream Quality Probe',
+        billingTitle: 'Bulk Upstream Change Monitor',
+        qualityTitle: 'Bulk Upstream Quality Probe',
+        summary: '{count} account(s) selected',
+        dedupHint: 'When enabling, accounts sharing the same upstream base URL are enabled only once; later ones are skipped and linked to the first. Disabling applies to every selected account.',
+        model: 'Probe model',
+        modelPlaceholder: 'Leave empty to use each account default',
+        interval: 'Interval (minutes)',
+        account: 'Account',
+        status: 'Result',
+        enable: 'Enable',
+        disable: 'Disable',
+        duplicateOf: 'same upstream as {name}',
+        done: 'Done: {total} account(s) processed',
+        partial: '{failed} of {total} account(s) failed',
+        failed: 'Bulk operation failed',
+        statuses: {
+          enabled: 'Enabled',
+          disabled: 'Disabled',
+          skipped_duplicate: 'Skipped (duplicate upstream)',
+          failed: 'Failed'
+        }
+      },
       bulkActions: {
         selected: '{count} account(s) selected',
         selectedAll: 'All {count} account(s) selected',

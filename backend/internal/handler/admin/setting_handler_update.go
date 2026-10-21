@@ -333,6 +333,7 @@ type UpdateSettingsRequest struct {
 	PaymentRechargeBonusTiers  *[]dto.RechargeBonusTier `json:"payment_recharge_bonus_tiers"`
 	PaymentRechargeBonusMode   *string                  `json:"payment_recharge_bonus_mode"`
 	PaymentRechargeBonusNotice *string                  `json:"payment_recharge_bonus_notice"`
+	PaymentRechargeTabs        *[]dto.RechargeTab       `json:"payment_recharge_tabs"`
 	PaymentLoadBalanceStrat    *string                  `json:"payment_load_balance_strategy"`
 	PaymentProductNamePrefix   *string                  `json:"payment_product_name_prefix"`
 	PaymentProductNameSuffix   *string                  `json:"payment_product_name_suffix"`
@@ -2495,6 +2496,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			RechargeBonusTiers:            rechargeBonusTiersFromDTO(req.PaymentRechargeBonusTiers),
 			RechargeBonusMode:             req.PaymentRechargeBonusMode,
 			RechargeBonusNotice:           req.PaymentRechargeBonusNotice,
+			RechargeTabs:                  rechargeTabsFromDTO(req.PaymentRechargeTabs),
 			LoadBalanceStrategy:           req.PaymentLoadBalanceStrat,
 			ProductNamePrefix:             req.PaymentProductNamePrefix,
 			ProductNameSuffix:             req.PaymentProductNameSuffix,
@@ -2792,6 +2794,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		PaymentRechargeBonusTiers:                              rechargeBonusTiersToDTO(updatedPaymentCfg.RechargeBonusTiers),
 		PaymentRechargeBonusMode:                               rechargeBonusModeToDTO(updatedPaymentCfg.RechargeBonusMode),
 		PaymentRechargeBonusNotice:                             updatedPaymentCfg.RechargeBonusNotice,
+		PaymentRechargeTabs:                                    rechargeTabsToDTO(updatedPaymentCfg.RechargeTabs),
 		PaymentLoadBalanceStrat:                                updatedPaymentCfg.LoadBalanceStrategy,
 		PaymentProductNamePrefix:                               updatedPaymentCfg.ProductNamePrefix,
 		PaymentProductNameSuffix:                               updatedPaymentCfg.ProductNameSuffix,
@@ -2900,6 +2903,7 @@ func hasPaymentFields(req UpdateSettingsRequest) bool {
 		req.PaymentBalanceRechargeMultiplier != nil || req.PaymentSubscriptionUSDToCNYRate != nil ||
 		req.PaymentRechargeFeeRate != nil ||
 		req.PaymentRechargeBonusTiers != nil || req.PaymentRechargeBonusMode != nil || req.PaymentRechargeBonusNotice != nil ||
+		req.PaymentRechargeTabs != nil ||
 		req.PaymentLoadBalanceStrat != nil || req.PaymentProductNamePrefix != nil ||
 		req.PaymentProductNameSuffix != nil || req.PaymentHelpImageURL != nil ||
 		req.PaymentHelpText != nil || req.PaymentCancelRateLimitEnabled != nil ||

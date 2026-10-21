@@ -26,11 +26,27 @@
           <h2 class="text-lg font-semibold">{{ t('upstreamOps.quality.addTitle') }}</h2>
           <div class="grid gap-4 sm:grid-cols-3">
             <label><span class="field-title">{{ t('upstreamOps.quality.accountId') }}</span><input v-model.number="form.account_id" data-testid="quality-account-id" type="number" min="1" required class="input w-full" /></label>
-            <label class="sm:col-span-2"><span class="field-title">{{ t('upstreamOps.quality.model') }}</span><input v-model.trim="form.model" data-testid="quality-model" required maxlength="128" class="input w-full" /></label>
+            <div class="sm:col-span-2">
+              <label for="quality-model-input" class="field-title">{{ t('upstreamOps.quality.model') }}</label>
+              <div class="flex items-center gap-2">
+                <input id="quality-model-input" v-model.trim="form.model" data-testid="quality-model" required maxlength="128" class="input w-full" />
+                <UpstreamModelPicker :account-id="form.account_id ?? null" :current="form.model ? [form.model] : []" @pick="(models) => { if (models[0]) form.model = models[0] }" />
+              </div>
+            </div>
             <label><span class="field-title">{{ t('upstreamOps.quality.interval') }}</span><input v-model.number="form.interval_minutes" type="number" min="5" max="1440" required class="input w-full" /></label>
             <label class="flex items-end gap-3 pb-2 font-medium sm:col-span-2"><input v-model="form.enabled" type="checkbox" role="switch" />{{ t('upstreamOps.quality.accountEnabled') }}</label>
           </div>
           <p class="text-xs leading-5 text-gray-500">{{ t('upstreamOps.quality.modelHint') }}</p>
+          <div data-testid="quality-prompts">
+            <span class="field-title">{{ t('upstreamOps.quality.prompts') }}</span>
+            <div v-for="(_, index) in form.prompts" :key="index" class="mt-2 flex items-start gap-2">
+              <span class="mt-2 w-6 shrink-0 text-right text-xs text-gray-400">#{{ index + 1 }}</span>
+              <textarea v-model="form.prompts[index]" rows="2" maxlength="8000" class="input w-full" :data-testid="`quality-prompt-${index}`" />
+              <button type="button" class="link-button mt-2 shrink-0 text-xs" @click="form.prompts.splice(index, 1)">{{ t('upstreamOps.quality.removePrompt') }}</button>
+            </div>
+            <button type="button" class="link-button mt-2 text-xs" data-testid="quality-add-prompt" :disabled="form.prompts.length >= 20" @click="form.prompts.push('')">+ {{ t('upstreamOps.quality.addPrompt') }}</button>
+            <p class="mt-1 text-xs leading-5 text-gray-500">{{ t('upstreamOps.quality.promptsHint') }}</p>
+          </div>
           <button class="btn btn-primary" type="submit" :disabled="busy">{{ t('upstreamOps.quality.saveAccount') }}</button>
         </form>
       </div>
@@ -91,6 +107,7 @@ import { defineComponent, h, onMounted, reactive, ref, type PropType } from 'vue
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import SmartOpsNav from '@/components/admin/operations/SmartOpsNav.vue'
+import UpstreamModelPicker from '@/components/admin/common/UpstreamModelPicker.vue'
 import {
   getUpstreamQualitySettings, saveUpstreamQualitySettings, listUpstreamQualityConfigs, getUpstreamQualityAccount,
   saveUpstreamQualityAccount, deleteUpstreamQualityAccount, runUpstreamQualityAccount,
@@ -109,7 +126,7 @@ const runningId = ref<number | null>(null)
 const busy = ref(false)
 const error = ref('')
 const notice = ref('')
-const form = reactive({ account_id: undefined as number | undefined, model: '', interval_minutes: 60, enabled: true })
+const form = reactive({ account_id: undefined as number | undefined, model: '', interval_minutes: 60, enabled: true, prompts: [] as string[] })
 
 function errorText(err: unknown) {
   return (err as { message?: string })?.message || t('upstreamOps.quality.loadError')
@@ -186,7 +203,10 @@ async function saveAccount() {
   busy.value = true
   error.value = ''
   try {
-    await saveUpstreamQualityAccount(form.account_id, { enabled: form.enabled, model: form.model, interval_minutes: form.interval_minutes })
+    await saveUpstreamQualityAccount(form.account_id, {
+      enabled: form.enabled, model: form.model, interval_minutes: form.interval_minutes,
+      prompts: form.prompts.map((prompt) => prompt.trim()).filter(Boolean),
+    })
     notice.value = t('upstreamOps.quality.saved')
     configs.value = await listUpstreamQualityConfigs()
   } catch (err) {
@@ -197,7 +217,7 @@ async function saveAccount() {
 }
 
 function edit(cfg: UpstreamQualityProbeConfig) {
-  Object.assign(form, { account_id: cfg.account_id, model: cfg.model, interval_minutes: cfg.interval_minutes, enabled: cfg.enabled })
+  Object.assign(form, { account_id: cfg.account_id, model: cfg.model, interval_minutes: cfg.interval_minutes, enabled: cfg.enabled, prompts: [...(cfg.prompts ?? [])] })
 }
 
 async function remove(accountId: number) {

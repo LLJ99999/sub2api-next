@@ -4,6 +4,7 @@ import PaymentView from '../PaymentView.vue'
 import { PAYMENT_RECOVERY_STORAGE_KEY } from '@/components/payment/paymentFlow'
 import { formatPaymentAmount } from '@/components/payment/currency'
 import AmountInput from '@/components/payment/AmountInput.vue'
+import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import en from '@/i18n/locales/en'
 import zh from '@/i18n/locales/zh'
@@ -941,5 +942,70 @@ describe('PaymentView subscription feature flag', () => {
     expect(wrapper.text()).not.toContain('payment.rechargeAccount')
     expect(wrapper.findAllComponents(SubscriptionPlanCard).length).toBeGreaterThan(0)
     wrapper.unmount()
+  })
+})
+
+describe('PaymentView recharge tabs', () => {
+  beforeEach(() => {
+    routeState.path = '/purchase'
+    routeState.query = {}
+    window.localStorage.clear()
+    appStoreState.setPublicSettings({ subscription_enabled: false })
+  })
+  afterEach(() => {
+    appStoreState.setPublicSettings(undefined)
+  })
+
+  const limit = () => checkoutInfoFixture().data.methods.wxpay
+
+  async function mountTabs(overrides: Partial<CheckoutInfoResponse>) {
+    getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoFixture({
+      methods: { alipay: limit(), wxpay: limit(), binance: { ...limit(), display_name: 'Binance Pay', upstream_type: 'binance' } },
+      ...overrides,
+    }))
+    const wrapper = shallowMount(PaymentView, {
+      global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, Teleport: true, Transition: false } },
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  function shownMethods(wrapper: Awaited<ReturnType<typeof mountTabs>>) {
+    return (wrapper.getComponent(PaymentMethodSelector).props('methods') as { type: string }[]).map((m) => m.type)
+  }
+
+  it('keeps the default single 充值 tab with every method when no tabs are configured', async () => {
+    const wrapper = await mountTabs({})
+    expect(shownMethods(wrapper).sort()).toEqual(['alipay', 'binance', 'wxpay'])
+    // A single tab hides the switcher; the default label is not relabelled.
+    expect(wrapper.findAll('button').map((b) => b.text())).not.toContain('币安支付')
+  })
+
+  it('shows custom tab names in order and filters methods by the active tab', async () => {
+    const wrapper = await mountTabs({
+      recharge_tabs: [
+        { id: 'binance', name: '币安支付', sort_order: 2, enabled: true, methods: ['binance'] },
+        { id: 'recharge', name: '充值', sort_order: 1, enabled: true, methods: ['alipay', 'wxpay'] },
+      ],
+    })
+    const tabButtons = wrapper.findAll('button').filter((b) => ['充值', '币安支付'].includes(b.text()))
+    expect(tabButtons.map((b) => b.text())).toEqual(['充值', '币安支付'])
+    expect(shownMethods(wrapper).sort()).toEqual(['alipay', 'wxpay'])
+
+    await tabButtons[1].trigger('click')
+    await flushPromises()
+    expect(shownMethods(wrapper)).toEqual(['binance'])
+    expect(wrapper.getComponent(PaymentMethodSelector).props('selected')).toBe('binance')
+  })
+
+  it('opens a custom tab from ?tab=<id>', async () => {
+    routeState.query = { tab: 'usdc' }
+    const wrapper = await mountTabs({
+      recharge_tabs: [
+        { id: 'recharge', name: '充值', sort_order: 1, enabled: true, methods: ['alipay'] },
+        { id: 'usdc', name: 'USDC', sort_order: 2, enabled: true, methods: ['binance'] },
+      ],
+    })
+    expect(shownMethods(wrapper)).toEqual(['binance'])
   })
 })

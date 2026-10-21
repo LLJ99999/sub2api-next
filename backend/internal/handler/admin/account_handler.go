@@ -3250,6 +3250,90 @@ func (h *AccountHandler) SyncUpstreamModels(c *gin.Context) {
 	response.Success(c, catalog)
 }
 
+// syncGroupUpstreamMaxAccounts bounds how many distinct upstreams a group sync asks.
+const syncGroupUpstreamMaxAccounts = 8
+
+// SyncGroupUpstreamModels returns the union of the live model lists of a group's
+// active accounts (one account per base URL), for admin model pickers that are
+// configured per group (鹈鹕测智, channel monitor, group model settings).
+// POST /api/v1/admin/accounts/models/sync-upstream-by-group
+func (h *AccountHandler) SyncGroupUpstreamModels(c *gin.Context) {
+	var req struct {
+		GroupID int64 `json:"group_id" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if h.accountTestService == nil {
+		response.InternalError(c, "Account test service is not configured")
+		return
+	}
+	accounts, _, err := h.adminService.ListAccounts(c.Request.Context(), 1, 200, "", "", "", "", req.GroupID, "", "", "")
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	models, warnings, asked := collectGroupUpstreamModels(accounts, func(account *service.Account) ([]string, error) {
+		catalog, err := h.accountTestService.SyncUpstreamModelCatalog(c.Request.Context(), account)
+		if err != nil || catalog == nil {
+			return nil, err
+		}
+		return catalog.Models, nil
+	})
+	if asked == 0 {
+		response.BadRequest(c, "No active account in this group can list upstream models")
+		return
+	}
+	if len(models) == 0 && len(warnings) > 0 {
+		response.Error(c, http.StatusBadGateway, "Failed to sync upstream models from upstream")
+		return
+	}
+	response.Success(c, gin.H{"models": models, "warnings": warnings})
+}
+
+// collectGroupUpstreamModels asks one active account per base URL and merges the
+// model ids in first-seen order. Failures become warnings, never the account key.
+func collectGroupUpstreamModels(accounts []service.Account, fetch func(*service.Account) ([]string, error)) ([]string, []gin.H, int) {
+	seenURL := map[string]struct{}{}
+	seenModel := map[string]struct{}{}
+	models := []string{}
+	warnings := []gin.H{}
+	asked := 0
+	for i := range accounts {
+		account := &accounts[i]
+		if !account.IsActive() {
+			continue
+		}
+		key := account.Platform + "|" + strings.TrimRight(strings.TrimSpace(account.GetCredential("base_url")), "/")
+		if _, dup := seenURL[key]; dup {
+			continue
+		}
+		if asked >= syncGroupUpstreamMaxAccounts {
+			break
+		}
+		seenURL[key] = struct{}{}
+		asked++
+		list, err := fetch(account)
+		if err != nil {
+			warnings = append(warnings, gin.H{"code": "upstream_model_sync_failed", "message": fmt.Sprintf("account %d (%s): sync failed", account.ID, account.Name)})
+			continue
+		}
+		for _, m := range list {
+			m = strings.TrimSpace(m)
+			if m == "" {
+				continue
+			}
+			if _, dup := seenModel[m]; dup {
+				continue
+			}
+			seenModel[m] = struct{}{}
+			models = append(models, m)
+		}
+	}
+	return models, warnings, asked
+}
+
 // SyncUpstreamModelsPreview handles syncing live supported models using provided credentials (no account ID needed).
 // POST /api/v1/admin/accounts/models/sync-upstream-preview
 func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
