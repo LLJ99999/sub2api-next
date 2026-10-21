@@ -183,6 +183,13 @@ func prepareOpenAIReasoningEffortPolicyForMessagesRequest(c *gin.Context, apiKey
 		// default. Enforce it before conversion or account/model normalization.
 		requested := service.CanonicalRequestedReasoningEffort(nil, requestModel)
 		if requested == nil || *requested != "ultra" {
+			// Still apply the group's effort mappings to the synthesized value
+			// (e.g. "none" for disabled thinking, or the bridge default), but
+			// without the ceiling so the default itself is not clamped.
+			// Ported from Wei-Shaw/sub2api PR #8161 (issue #8156).
+			if len(mappings) > 0 {
+				c.Request = c.Request.WithContext(service.WithOpenAIReasoningEffortPolicy(c.Request.Context(), "", mappings, overLimit, requestModel))
+			}
 			return body, nil
 		}
 		payload, err := sjson.SetBytes(body, "output_config.effort", "ultra")
