@@ -1528,28 +1528,60 @@ func (s *OpenAIGatewayService) bindHTTPResponseAccount(ctx context.Context, c *g
 	if ctx != nil {
 		bindBaseCtx = context.WithoutCancel(ctx)
 	}
-	bindCtx, cancel := context.WithTimeout(bindBaseCtx, openAIWSStateStoreRedisTimeout)
-	defer cancel()
 
+	// Read everything that lives on the gin context before handing the writes
+	// to a goroutine: the context is recycled once the handler returns.
 	groupID := getOpenAIGroupIDFromContext(c)
 	ttl := s.openAIWSResponseStickyTTL()
-	logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, store.BindResponseAccount(bindCtx, groupID, responseID, account.ID, ttl))
-	if rawOwner, ok := c.Get(openAIHTTPResponseOwnerContextKey); ok {
-		if owner, ok := rawOwner.(openAIHTTPResponseOwner); ok && owner.userID > 0 && owner.apiKeyID > 0 {
-			if err := s.BindOpenAIHTTPResponseOwner(bindCtx, groupID, responseID, owner.userID, owner.apiKeyID); err != nil {
-				logger.L().Warn(
-					"openai.http_bind_response_owner_failed",
-					zap.Int64("group_id", groupID),
-					zap.Int64("account_id", account.ID),
-					zap.Int64("user_id", owner.userID),
-					zap.Int64("api_key_id", owner.apiKeyID),
-					zap.String("response_id", truncateOpenAIWSLogValue(responseID, openAIWSIDValueMaxLen)),
-					zap.Error(err),
-				)
+	var owner openAIHTTPResponseOwner
+	hasOwner := false
+	if c != nil {
+		if rawOwner, ok := c.Get(openAIHTTPResponseOwnerContextKey); ok {
+			if o, ok := rawOwner.(openAIHTTPResponseOwner); ok && o.userID > 0 && o.apiKeyID > 0 {
+				owner, hasOwner = o, true
 			}
 		}
 	}
+	accountID := account.ID
+
+	// A slow or unreachable Redis used to hold every finished response for up to
+	// the full Redis budget (bind_response_owner_failed + high latency, #6851).
+	// Run the writes off the response path and wait only briefly: a healthy Redis
+	// (and the in-memory store) finishes well within the wait, while a degraded
+	// one no longer adds seconds to every request.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		bindCtx, cancel := context.WithTimeout(bindBaseCtx, openAIWSStateStoreRedisTimeout)
+		defer cancel()
+		logOpenAIWSBindResponseAccountWarn(groupID, accountID, responseID, store.BindResponseAccount(bindCtx, groupID, responseID, accountID, ttl))
+		if !hasOwner {
+			return
+		}
+		if err := s.BindOpenAIHTTPResponseOwner(bindCtx, groupID, responseID, owner.userID, owner.apiKeyID); err != nil {
+			logger.L().Warn(
+				"openai.http_bind_response_owner_failed",
+				zap.Int64("group_id", groupID),
+				zap.Int64("account_id", accountID),
+				zap.Int64("user_id", owner.userID),
+				zap.Int64("api_key_id", owner.apiKeyID),
+				zap.String("response_id", truncateOpenAIWSLogValue(responseID, openAIWSIDValueMaxLen)),
+				zap.Error(err),
+			)
+		}
+	}()
+	timer := time.NewTimer(openAIHTTPResponseBindWaitBudget)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+	}
 }
+
+// openAIHTTPResponseBindWaitBudget bounds how long a finished HTTP response
+// waits for its affinity writes before returning; the writes keep running in
+// the background with their own Redis budget.
+const openAIHTTPResponseBindWaitBudget = 150 * time.Millisecond
 
 func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 	if !value.Exists() || !value.IsObject() {
