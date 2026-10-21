@@ -65,7 +65,7 @@ func TestPrepareOpenAICompactFallbackRetryPreservesNativeTriggerAndContext(t *te
 
 func TestResolveOpenAICompactFallbackModelPrefersAccountMapping(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "global-compact"}}}
-	account := &Account{Credentials: map[string]any{
+	account := &Account{Platform: PlatformOpenAI, Credentials: map[string]any{
 		"compact_model_mapping": map[string]any{"gpt-5.5": "account-compact"},
 	}}
 
@@ -518,4 +518,21 @@ func TestOpenAIPassthroughCompactFallbackSecondStreamFailureUsesStandardErrorPat
 	require.True(t, events[1].Passthrough)
 	require.Equal(t, proxy.URL(), upstream.lastProxyURL)
 	requireCompactEventsAttributedTo(t, events, proxy)
+}
+
+// #7330: the process-wide compact fallback is an OpenAI model and must not be
+// retried on a non-OpenAI account or one whose whitelist cannot serve it.
+func TestResolveOpenAICompactFallbackModelSkipsAccountsThatCannotServeIt(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.6-terra"}}}
+
+	deepseek := &Account{ID: 1, Platform: PlatformDeepseek, Type: AccountTypeAPIKey, Credentials: map[string]any{}}
+	require.Empty(t, svc.resolveOpenAICompactFallbackModel(deepseek, "deepseek-v4-flash"))
+
+	whitelisted := &Account{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"model_mapping": map[string]any{"gpt-6-astra": "gpt-6-astra"},
+	}}
+	require.Empty(t, svc.resolveOpenAICompactFallbackModel(whitelisted, "gpt-6-astra"))
+
+	openAI := &Account{ID: 3, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{}}
+	require.Equal(t, "gpt-5.6-terra", svc.resolveOpenAICompactFallbackModel(openAI, "gpt-6-astra"))
 }

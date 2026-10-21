@@ -71,6 +71,14 @@ func (s *OpenAIGatewayService) resolveOpenAICompactFallbackModel(account *Accoun
 	if fallback == "" {
 		return ""
 	}
+	// The process-wide compact model is an OpenAI model. Retrying it on the same
+	// non-OpenAI account (DeepSeek, Kimi, ... in a composite group) or on an
+	// account whose whitelist cannot serve it only yields a 404 and a model
+	// cooldown on the wrong account (#7330). In that case keep the original
+	// error so the normal failover/selection path handles it.
+	if account != nil && (account.Platform != PlatformOpenAI || !account.IsModelSupported(fallback)) {
+		return ""
+	}
 	resolved := strings.TrimSpace(resolveOpenAIAccountUpstreamModelForRequest(account, fallback, false))
 	if isRetiredOpenAISubscriptionModel(account, resolved) {
 		return ""
