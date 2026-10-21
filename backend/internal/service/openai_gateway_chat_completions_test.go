@@ -958,8 +958,10 @@ func TestForwardAsChatCompletions_OAuthJsonObjectKeepsSystemMessageInInput(t *te
 	require.Equal(t, systemPrompt, gjson.GetBytes(upstreamBody, "instructions").String())
 	require.Equal(t, int64(2), gjson.GetBytes(upstreamBody, "input.#").Int())
 	require.Equal(t, "developer", gjson.GetBytes(upstreamBody, "input.0.role").String())
-	require.Equal(t, systemPrompt, gjson.GetBytes(upstreamBody, "input.0.content").String())
-	require.Equal(t, 2, strings.Count(string(upstreamBody), systemPrompt))
+	// #7027: json_object mode injects a minimal JSON directive instead of
+	// re-sending the whole system prompt in input.
+	require.Contains(t, strings.ToLower(gjson.GetBytes(upstreamBody, "input.0.content").String()), "json")
+	require.Equal(t, 1, strings.Count(string(upstreamBody), systemPrompt))
 }
 
 func TestForwardAsChatCompletions_OAuthKeepsMixedSystemContentInInput(t *testing.T) {
@@ -1898,6 +1900,7 @@ func TestGPT61SolOnlyChatFallbackRejectsToolsAndDisabledReasoning(t *testing.T) 
 			require.Contains(t, rec.Body.String(), "gpt-6.1-sol")
 		}
 	}
+}
 
 func TestChatCompletionsMappedPromptCacheOptionsCompatibility(t *testing.T) {
 	for _, target := range []string{"gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-future-preview"} {
