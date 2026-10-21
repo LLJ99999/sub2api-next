@@ -34,7 +34,7 @@ func TestCustomToolInputStreamEverySplit(t *testing.T) {
 			for i := 1; i <= len(arguments); i++ {
 				delta := stream.delta(arguments[:i])
 				require.True(t, utf8.ValidString(delta))
-				got.WriteString(delta)
+				_, _ = got.WriteString(delta)
 			}
 			require.Equal(t, want, got.String())
 		})
