@@ -7,7 +7,7 @@
 **A Sub2API edition built for external API upstreams**
 
 [![CI](https://github.com/LLJ99999/sub2api-next/actions/workflows/backend-ci.yml/badge.svg?branch=main)](https://github.com/LLJ99999/sub2api-next/actions/workflows/backend-ci.yml)
-[![Go](https://img.shields.io/badge/Go-1.27.2-00ADD8.svg)](https://golang.org/)
+[![Go](https://img.shields.io/badge/Go-1.27.3-00ADD8.svg)](https://golang.org/)
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D.svg)](https://vuejs.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791.svg)](https://www.postgresql.org/)
 [![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg)](https://redis.io/)
@@ -76,7 +76,7 @@ Then deploy with Docker Compose following the [deployment guide](deploy/README.m
 
 | Component | Technology |
 | --- | --- |
-| Backend | Go 1.27.2 · Gin · Ent |
+| Backend | Go 1.27.3 · Gin · Ent |
 | Frontend | Vue 3 · Vite · TailwindCSS |
 | Storage | PostgreSQL 15+ · Redis 7+ |
 | Protocols | OpenAI Responses / Chat Completions · Anthropic Messages · Gemini · SSE · WebSocket |

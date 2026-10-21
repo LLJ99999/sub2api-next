@@ -7,7 +7,7 @@
 **更適合外接 API 的 Sub2API 版本**
 
 [![CI](https://github.com/LLJ99999/sub2api-next/actions/workflows/backend-ci.yml/badge.svg?branch=main)](https://github.com/LLJ99999/sub2api-next/actions/workflows/backend-ci.yml)
-[![Go](https://img.shields.io/badge/Go-1.27.2-00ADD8.svg)](https://golang.org/)
+[![Go](https://img.shields.io/badge/Go-1.27.3-00ADD8.svg)](https://golang.org/)
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D.svg)](https://vuejs.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791.svg)](https://www.postgresql.org/)
 [![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg)](https://redis.io/)
@@ -78,7 +78,7 @@ docker build -t sub2api-next:latest .
 
 | 元件 | 技術 |
 | --- | --- |
-| 後端 | Go 1.27.2 · Gin · Ent |
+| 後端 | Go 1.27.3 · Gin · Ent |
 | 前端 | Vue 3 · Vite · TailwindCSS |
 | 儲存 | PostgreSQL 15+ · Redis 7+ |
 | 協定 | OpenAI Responses / Chat Completions · Anthropic Messages · Gemini · SSE · WebSocket |
