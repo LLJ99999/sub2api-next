@@ -795,6 +795,8 @@ readLoop:
 			continue
 		}
 		responseModelObserver.ObserveOpenAI(message, eventType)
+		message = normalizeOpenAIResponseServiceTier(account, openAIWSPayloadString(payload, "service_tier"), message)
+		_, _, responseField = parseOpenAIWSEventEnvelope(message)
 		eventCount++
 		if firstEventType == "" {
 			firstEventType = eventType
