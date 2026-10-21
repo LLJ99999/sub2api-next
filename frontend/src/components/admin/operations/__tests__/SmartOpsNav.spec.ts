@@ -1,48 +1,55 @@
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
-import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it } from 'vitest'
 import SmartOpsNav from '../SmartOpsNav.vue'
-import { useAdminSettingsStore } from '@/stores/adminSettings'
+import { useAdminNavLayoutStore } from '@/stores/adminNavLayout'
 
-const smartOpsPaths = ['/admin/auto-config', '/admin/priority-scheduling', '/admin/account-quality', '/admin/controlled-experiments', '/admin/account-ops', '/admin/upstream-changes', '/admin/upstream-quality-probes', '/admin/token-guard', '/admin/token-guard-v2', '/admin/pelican-tests', '/admin/group-cache-tests']
+const paths = ['/admin/auto-config', '/admin/account-quality', '/admin/harvest-flow', '/admin/token-guard']
 
 async function mountAt(path: string) {
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [...smartOpsPaths, '/admin/request-captures', '/admin/harvest-flow'].map(route => ({ path: route, component: { template: '<div />' } }))
+    routes: paths.map(route => ({ path: route, component: { template: '<div />' } }))
   })
   await router.push(path)
   await router.isReady()
-  const i18n = createI18n({ legacy: false, locale: 'zh', missingWarn: false, fallbackWarn: false, messages: { zh: {} } })
-  return mount(SmartOpsNav, { global: { plugins: [router, i18n] } })
+  return mount(SmartOpsNav, { global: { plugins: [router] } })
 }
 
 const hrefs = (wrapper: Awaited<ReturnType<typeof mountAt>>) => wrapper.findAll('a').map(link => link.attributes('href'))
 
 describe('SmartOpsNav', () => {
-  beforeEach(() => setActivePinia(createPinia()))
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    useAdminNavLayoutStore().setResolved([
+      { path: '/admin/token-guard', label: 'Token Guard', icon: null },
+      { path: 'group:custom-a', label: '巡检', icon: null, expandOnly: true, children: [
+        { path: '/admin/auto-config', label: '自动配置', icon: null },
+        { path: '/admin/account-quality', label: '质量', icon: null },
+        { path: '/admin/harvest-flow', label: '工单', icon: null },
+      ] },
+    ])
+  })
 
-  it('ends with the ticket harvest flow and hides request capture while the feature is off', async () => {
+  it('shows the pages of the sidebar group the current page belongs to', async () => {
     const wrapper = await mountAt('/admin/harvest-flow')
-    expect(hrefs(wrapper)).toEqual([...smartOpsPaths, '/admin/harvest-flow'])
-    expect(wrapper.find('[aria-current="page"]').text()).toBe('nav.harvestFlow')
+    expect(hrefs(wrapper)).toEqual(['/admin/auto-config', '/admin/account-quality', '/admin/harvest-flow'])
+    expect(wrapper.find('[aria-current="page"]').text()).toBe('工单')
+    expect(wrapper.find('nav').attributes('aria-label')).toBe('巡检')
   })
 
-  it('lists request capture before the ticket harvest flow when the feature is on', async () => {
-    useAdminSettingsStore().setRequestCaptureEnabledLocal(true)
-    const wrapper = await mountAt('/admin/request-captures')
-    expect(hrefs(wrapper)).toEqual([...smartOpsPaths, '/admin/request-captures', '/admin/harvest-flow'])
-    expect(wrapper.find('[aria-current="page"]').text()).toBe('admin.requestCapture.title')
+  it('renders nothing for ungrouped pages', async () => {
+    const wrapper = await mountAt('/admin/token-guard')
+    expect(wrapper.find('nav').exists()).toBe(false)
   })
 
-  it('follows the feature switch without remounting', async () => {
-    const wrapper = await mountAt('/admin/pelican-tests')
-    expect(hrefs(wrapper)).not.toContain('/admin/request-captures')
-    useAdminSettingsStore().setRequestCaptureEnabledLocal(true)
+  it('follows layout changes without remounting', async () => {
+    const wrapper = await mountAt('/admin/auto-config')
+    expect(hrefs(wrapper)).toHaveLength(3)
+    useAdminNavLayoutStore().setResolved([{ path: '/admin/auto-config', label: '自动配置', icon: null }])
     await nextTick()
-    expect(hrefs(wrapper)).toContain('/admin/request-captures')
+    expect(wrapper.find('nav').exists()).toBe(false)
   })
 })

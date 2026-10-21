@@ -9277,13 +9277,18 @@
         </div>
         <!-- /Tab: Email -->
 
+        <!-- Tab: Sidebar layout (saves on its own) -->
+        <div v-if="activeTab === 'navigation'">
+          <NavLayoutSettings />
+        </div>
+
         <!-- Tab: Backup -->
         <div v-show="activeTab === 'backup'">
           <BackupSettings />
         </div>
 
         <!-- Save Button -->
-        <div v-show="activeTab !== 'backup'" class="flex justify-end">
+        <div v-show="activeTab !== 'backup' && activeTab !== 'navigation'" class="flex justify-end">
           <button
             type="submit"
             :disabled="saving || loadFailed"
@@ -9423,6 +9428,7 @@ import Toggle from "@/components/common/Toggle.vue";
 import ProxySelector from "@/components/common/ProxySelector.vue";
 import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
+import NavLayoutSettings from "@/components/admin/settings/NavLayoutSettings.vue";
 import ServerlessSettings from "@/components/settings/ServerlessSettings.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import RechargeBonusTierEditor from "@/components/admin/settings/RechargeBonusTierEditor.vue";
@@ -9495,6 +9501,7 @@ const settingsTabs = [
   { key: "gateway" as SettingsTab, icon: "server" as const },
   { key: "payment" as SettingsTab, icon: "creditCard" as const },
   { key: "email" as SettingsTab, icon: "mail" as const },
+  { key: "navigation" as SettingsTab, icon: "menu" as const },
   { key: "backup" as SettingsTab, icon: "database" as const },
 ];
 

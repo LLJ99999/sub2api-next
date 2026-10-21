@@ -1676,7 +1676,23 @@ export async function resetWebSearchUsage(payload: {
   );
 }
 
+// ==================== Admin Sidebar Layout ====================
+
+/** Raw admin sidebar layout document; the frontend normalizes it (see utils/adminNavLayout). */
+export async function getAdminNavLayout(): Promise<Record<string, unknown>> {
+  const { data } = await apiClient.get<Record<string, unknown>>("/admin/settings/nav-layout");
+  return data ?? {};
+}
+
+/** Replace the admin sidebar layout. Send {} to restore the default layout. */
+export async function updateAdminNavLayout(layout: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const { data } = await apiClient.put<Record<string, unknown>>("/admin/settings/nav-layout", layout);
+  return data ?? {};
+}
+
 export const settingsAPI = {
+  getAdminNavLayout,
+  updateAdminNavLayout,
   getSettings,
   updateSettings,
   testSmtpConnection,

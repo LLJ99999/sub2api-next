@@ -3,6 +3,7 @@ export default {
       title: 'System Settings',
       description: 'Manage registration, email verification, default values, and SMTP settings',
       tabs: {
+        navigation: 'Sidebar',
         general: 'General',
         agreement: 'Agreement',
         features: 'Feature Switches',
@@ -12,6 +13,25 @@ export default {
         email: 'Email',
         backup: 'Backup',
         payment: 'Payment',
+      },
+      navLayout: {
+        title: 'Sidebar layout',
+        description: 'Toggle admin menu entries, create your own groups and reorder them. Pages in a group show the other group pages as tabs at the top. Saved on the server for all admins.',
+        addGroup: 'New group',
+        reset: 'Restore default',
+        groupName: 'Group name',
+        groupNamePlaceholder: 'Group name',
+        groupCount: '{n} items',
+        dissolve: 'Dissolve group (pages move to top level)',
+        emptyGroup: 'Empty group: pick this group in a page\'s location dropdown to move it here',
+        location: 'Location',
+        topLevel: 'Top level',
+        unnamedGroup: 'Unnamed group',
+        newGroupName: 'New group {n}',
+        moveUp: 'Move up',
+        moveDown: 'Move down',
+        saved: 'Sidebar layout saved',
+        saveFailed: 'Save failed',
       },
       features: {
         excelBpsImages: {

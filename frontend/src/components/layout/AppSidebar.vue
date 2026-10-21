@@ -209,7 +209,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore, useSupportTicketStore } from '@/stores'
@@ -221,6 +221,8 @@ import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
+import { useAdminNavLayoutStore } from '@/stores/adminNavLayout'
+import { buildNavCatalog, normalizeNavLayout, resolveNavLayout, type NavCatalogDef } from '@/utils/adminNavLayout'
 
 interface NavItem {
   path: string
@@ -268,6 +270,7 @@ const appStore = useAppStore()
 const authStore = useAuthStore()
 const onboardingStore = useOnboardingStore()
 const adminSettingsStore = useAdminSettingsStore()
+const navLayoutStore = useAdminNavLayoutStore()
 const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
 
 const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
@@ -837,8 +840,8 @@ const customMenuItemsForAdmin = computed(() => {
 })
 
 // Admin navigation items
-const adminNavItems = computed((): NavItem[] => {
-  const baseItems: NavItem[] = [
+const adminNavDefs = computed((): NavCatalogDef[] => {
+  const baseItems: NavCatalogDef[] = [
     { path: '/admin/dashboard', label: t('nav.dashboard'), icon: DashboardIcon },
     { path: '/admin/ops', label: t('nav.ops'), icon: OpsMonitoringIcon, featureFlag: flagOpsMonitoring },
     { path: '/admin/users', label: t('nav.users'), icon: UsersIcon, hideInSimpleMode: true },
@@ -857,7 +860,7 @@ const adminNavItems = computed((): NavItem[] => {
     // 「仅充值」站点连管理端的「订阅管理」入口也一并收起（路由本身不拦截）。
     { path: '/admin/subscriptions', label: t('nav.subscriptions'), icon: CreditCardIcon, hideInSimpleMode: true, featureFlag: flagSubscription },
     { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
-    { path: '/admin/smart-ops', label: t('accountOps.smartTitle'), icon: SmartOpsIcon, expandOnly: true, children: [
+    { path: '/admin/smart-ops', label: t('accountOps.smartTitle'), icon: SmartOpsIcon, expandOnly: true, flattenByDefault: true, children: [
       { path: '/admin/auto-config', label: t('autoConfig.title'), icon: AccountOpsIcon },
       { path: '/admin/priority-scheduling', label: t('priorityScheduling.title'), icon: AccountOpsIcon },
       { path: '/admin/account-quality', label: t('qualityOps.title'), icon: QualityOpsIcon },
@@ -918,12 +921,28 @@ const adminNavItems = computed((): NavItem[] => {
     { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon },
     { path: '/admin/audit-logs', label: t('nav.auditLogs'), icon: ShieldIcon, hideInSimpleMode: true }
   ]
+  return baseItems
+})
 
-  const visible = applyFeatureFlags(baseItems)
+// The catalog of configurable admin entries; the stored layout decides which
+// are shown, how they are grouped and in what order (系统设置 → 侧边栏布局).
+const adminNavCatalog = computed(() => buildNavCatalog(adminNavDefs.value))
+const adminNavLayout = computed(() => normalizeNavLayout(navLayoutStore.raw, adminNavCatalog.value))
+const adminNavResolved = computed((): NavItem[] => resolveNavLayout(adminNavLayout.value, adminNavCatalog.value, {
+  simpleMode: authStore.isSimpleMode,
+  customGroupIcon: FolderIcon,
+}) as NavItem[])
+watchEffect(() => {
+  navLayoutStore.setCatalog(adminNavCatalog.value)
+  navLayoutStore.setResolved(adminNavResolved.value)
+})
+
+const adminNavItems = computed((): NavItem[] => {
+  const visible = [...adminNavResolved.value]
 
   // 简单模式下，在系统设置前插入 API密钥
   if (authStore.isSimpleMode) {
-    const filtered = visible.filter(item => !item.hideInSimpleMode)
+    const filtered = visible
     filtered.push({ path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon })
     filtered.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
     for (const cm of customMenuItemsForAdmin.value) {
@@ -1043,6 +1062,7 @@ watch(
   (v) => {
     if (v) {
       adminSettingsStore.fetch()
+      void navLayoutStore.fetch()
     }
   },
   { immediate: true }

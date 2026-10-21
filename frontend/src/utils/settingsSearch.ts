@@ -1,6 +1,6 @@
 import type { SearchNavItem } from '@/utils/featureSearch'
 
-export const SETTINGS_TABS = ['general', 'agreement', 'features', 'security', 'users', 'gateway', 'payment', 'email', 'backup'] as const
+export const SETTINGS_TABS = ['general', 'agreement', 'features', 'security', 'users', 'gateway', 'payment', 'email', 'navigation', 'backup'] as const
 export type SettingsTab = typeof SETTINGS_TABS[number]
 
 interface SettingsSection {

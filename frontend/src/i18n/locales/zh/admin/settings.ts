@@ -3,6 +3,7 @@ export default {
       title: '系统设置',
       description: '管理注册、邮箱验证、默认值和 SMTP 设置',
       tabs: {
+        navigation: '侧边栏布局',
         general: '通用设置',
         agreement: '登录条款',
         features: '功能开关',
@@ -12,6 +13,25 @@ export default {
         email: '邮件设置',
         backup: '数据备份',
         payment: '支付设置',
+      },
+      navLayout: {
+        title: '侧边栏布局',
+        description: '自由开关管理端菜单、自建分组并调整顺序。分组内的页面会在页面顶部显示为标签页。配置保存在服务端，对所有管理员生效。',
+        addGroup: '新建分组',
+        reset: '恢复默认',
+        groupName: '分组名称',
+        groupNamePlaceholder: '输入分组名称',
+        groupCount: '{n} 项',
+        dissolve: '解散分组（页面移回顶层）',
+        emptyGroup: '空分组：在页面右侧的下拉框中选择本分组即可移入',
+        location: '所在位置',
+        topLevel: '顶层菜单',
+        unnamedGroup: '未命名分组',
+        newGroupName: '新分组 {n}',
+        moveUp: '上移',
+        moveDown: '下移',
+        saved: '侧边栏布局已保存',
+        saveFailed: '保存失败',
       },
       features: {
         excelBpsImages: {
