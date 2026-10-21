@@ -255,8 +255,12 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		}
 	}
 
+	// Explicit passthrough is for native Responses upstreams: keep custom tools,
+	// their grammar and history intact. Automatic API-key routing still uses the
+	// compatibility adapter when passthrough has not been explicitly enabled.
 	if account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey &&
-		!account.IsCopilotSDKEnabled() && !isOpenAIResponsesCompactPath(c) && needsOpenAIResponsesClientToolAdaptation(body) {
+		!account.IsCopilotSDKEnabled() && !account.IsOpenAIPassthroughEnabled() &&
+		!isOpenAIResponsesCompactPath(c) && needsOpenAIResponsesClientToolAdaptation(body) {
 		adaptedBody, mapping, adaptErr := adaptOpenAIResponsesClientTools(body)
 		if adaptErr != nil {
 			return nil, adaptErr
