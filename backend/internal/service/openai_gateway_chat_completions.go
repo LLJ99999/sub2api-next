@@ -159,6 +159,12 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		// CC 入站经 CC→Responses→Anthropic 转换链直通供应商原生 Anthropic 端点。
 		return s.forwardChatCompletionsViaNativeAnthropic(ctx, c, account, body, defaultMappedModel)
 	case APIProtocolChatCompletions:
+		if !isResponsesShape && chatRequestRequiresResponsesForTools(body, routingModel) && accountCanServeResponsesForChatTools(account, routingModel) {
+			// Tool calls for this model only work over Responses; the account can
+			// serve Responses, so use the conversion chain below instead of the
+			// raw Chat Completions path that would reject the request (#8020).
+			break
+		}
 		if convertResponsesShape {
 			chatBody, err := s.convertResponsesShapedChatBody(body)
 			if err != nil {
