@@ -28,7 +28,7 @@ Sub2API Next is a Sub2API edition better suited to **external account pools**. W
 
 ## Key features
 
-### 🛡️ Scheduling and fault tolerance for external APIs
+### 🛡️ Scheduling and fault tolerance for external account pools
 
 - **Circuit breaker**: sliding-window error tracking that trips only past a threshold, scoped per model; the half-open state admits at most 2 probe requests, with exponential backoff on repeated failures.
 - **Recoverable 402 cooldown**: when an upstream runs out of balance, the account cools down for 30 minutes and then recovers automatically; OpenAI `deactivated_workspace` is still disabled permanently.
