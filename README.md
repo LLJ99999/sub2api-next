@@ -4,7 +4,7 @@
 
 # Sub2API Next
 
-**更适合外接 API 的 Sub2API 版本**
+**更适合外接号池的 Sub2API 版本**
 
 [![CI](https://github.com/LLJ99999/sub2api-next/actions/workflows/backend-ci.yml/badge.svg?branch=main)](https://github.com/LLJ99999/sub2api-next/actions/workflows/backend-ci.yml)
 [![Docker Image](https://github.com/LLJ99999/sub2api-next/actions/workflows/docker-image.yml/badge.svg?branch=main)](https://github.com/LLJ99999/sub2api-next/pkgs/container/sub2api-next)
@@ -24,7 +24,7 @@
 
 ## 简介
 
-Sub2API Next 是更适合**外接 API 上游**（其他中转站、官方 API Key）的 Sub2API 版本。外接 API 账号使用独立的熔断、冷却与运维策略，**与号池隔离**：号池原有能力（OAuth、质量运维、Mihomo 出口、Excel / BPS 等）完整保留、互不干扰。
+Sub2API Next 是更适合**外接号池**的 Sub2API 版本：把其他中转站、官方 API Key 等外部号池接进来做上游时，这些账号使用独立的熔断、冷却与运维策略，**与自有号池隔离**；自有号池原有能力（OAuth、质量运维、Mihomo 出口、Excel / BPS 等）完整保留、互不干扰。
 
 ## 核心能力
 

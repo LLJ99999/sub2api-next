@@ -4,7 +4,7 @@
 
 # Sub2API Next
 
-**A Sub2API edition built for external API upstreams**
+**A Sub2API edition built for external account pools**
 
 [![CI](https://github.com/LLJ99999/sub2api-next/actions/workflows/backend-ci.yml/badge.svg?branch=main)](https://github.com/LLJ99999/sub2api-next/actions/workflows/backend-ci.yml)
 [![Docker Image](https://github.com/LLJ99999/sub2api-next/actions/workflows/docker-image.yml/badge.svg?branch=main)](https://github.com/LLJ99999/sub2api-next/pkgs/container/sub2api-next)
@@ -24,7 +24,7 @@ Maintained by [api.zhigeng.io](https://api.zhigeng.io/)
 
 ## Overview
 
-Sub2API Next is a Sub2API edition better suited to **external API upstreams** (other relay stations and official API keys). External API accounts run on their own circuit-breaker, cooldown and operations policies, **isolated from the account pool**: all existing pool features (OAuth, quality operations, Mihomo egress, Excel / BPS, and more) are kept intact and unaffected.
+Sub2API Next is a Sub2API edition better suited to **external account pools**. When other relay stations, official API keys and similar external pools are plugged in as upstreams, those accounts run on their own circuit-breaker, cooldown and operations policies, **isolated from your own account pool**: all existing pool features (OAuth, quality operations, Mihomo egress, Excel / BPS, and more) are kept intact and unaffected.
 
 ## Key features
 
