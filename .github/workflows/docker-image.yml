@@ -2,12 +2,11 @@ name: Docker Image
 
 # Builds the root Dockerfile and publishes it to GitHub Container Registry.
 #   push to main  -> :latest, :main, :sha-<short>
-#   push tag v*   -> :<version>, :<major>.<minor>
+#   v* tags are published by release.yml (binaries + GitHub Release + images)
 #   pull request  -> build only (no push)
 on:
   push:
     branches: [main]
-    tags: ['v*']
     paths-ignore:
       - '**/*.md'
       - 'docs/**'
@@ -58,8 +57,6 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
             type=sha,prefix=sha-,format=short
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=ref,event=pr
           labels: |
             org.opencontainers.image.title=Sub2API Next

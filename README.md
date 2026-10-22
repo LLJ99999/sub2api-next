@@ -77,7 +77,7 @@ docker pull ghcr.io/llj99999/sub2api-next:latest
 | --- | --- |
 | `latest` / `main` | `main` 分支最新构建 |
 | `sha-<短哈希>` | 指定提交，便于固定版本与回滚 |
-| `<版本号>` | 打 `v*` 标签时发布 |
+| `<版本号>` | 发行版，随 [GitHub Releases](https://github.com/LLJ99999/sub2api-next/releases) 发布，后台可在线更新 |
 
 使用 Docker Compose 部署（`deploy/docker-compose.yml` 已指向上述镜像）：
 

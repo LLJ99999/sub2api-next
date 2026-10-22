@@ -77,7 +77,7 @@ docker pull ghcr.io/llj99999/sub2api-next:latest
 | --- | --- |
 | `latest` / `main` | Latest build of the `main` branch |
 | `sha-<short-sha>` | A specific commit, for pinning and rollback |
-| `<version>` | Published when a `v*` tag is pushed |
+| `<version>` | Release builds from [GitHub Releases](https://github.com/LLJ99999/sub2api-next/releases); installs can update online from the admin panel |
 
 Deploy with Docker Compose (`deploy/docker-compose.yml` already points at this image):
 
