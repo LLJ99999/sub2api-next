@@ -7,6 +7,7 @@
 **更适合外接 API 的 Sub2API 版本**
 
 [![CI](https://github.com/LLJ99999/sub2api-next/actions/workflows/backend-ci.yml/badge.svg?branch=main)](https://github.com/LLJ99999/sub2api-next/actions/workflows/backend-ci.yml)
+[![Docker Image](https://github.com/LLJ99999/sub2api-next/actions/workflows/docker-image.yml/badge.svg?branch=main)](https://github.com/LLJ99999/sub2api-next/pkgs/container/sub2api-next)
 [![Go](https://img.shields.io/badge/Go-1.27.3-00ADD8.svg)](https://golang.org/)
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D.svg)](https://vuejs.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791.svg)](https://www.postgresql.org/)
@@ -51,26 +52,45 @@ Sub2API Next 是更适合**外接 API 上游**（其他中转站、官方 API Ke
 - **倍率 / 余额变化告警**：自动记录上游倍率与余额历史，支持合并窗口、涨跌方向过滤、按账号静音，并推送通知。→ [说明](docs/upstream-change-alerts.md)
 - **上游质量实测**：按账号直连上游发极小的流式请求，测 TTFT、输出 TPS、真实 token 用量与上游实际模型名。默认关闭，按账号开启。→ [说明](docs/upstream-quality-probes.md)
 - **公开中转快照**：通过 `/.well-known/ai-transit.json`、`/api/public/transit/v1/snapshot` 和 `/public/transit` 对外展示分组、价格与可用率，只输出聚合匿名数据。→ [说明](docs/public-transit-snapshot.md)
+- **从上游拉取模型**：模型输入框旁一键拉取上游 `/v1/models`，可搜索点选；支持按账号、按分组或未保存的草稿凭据拉取。透传模式下 `/v1/models` 也会直接查询上游。
+- **探测提示词轮换**：鹈鹕测试与上游质量实测可配置多条提示词（`prompts[]`）轮流使用。→ [鹈鹕测试说明](docs/pelican-scheduled-tests.md)
+- **账号页批量开关**：在账号列表批量开启 / 关闭上游计费探测与质量实测，同一 Base URL 自动去重。
 
 ### 🔧 其他改进
 
+- **充值页多 Tab**：自定义名称、排序的充值 Tab，各自绑定支付方式；附通过 EasyPay 接入币安支付的说明。→ [说明](docs/recharge-tabs.md)
+- **侧边栏自定义**：系统设置 → 侧边栏布局，可显示 / 隐藏入口、自建分组、调整顺序，布局保存在服务端。
+- 持续合入上游 OpenAI / ChatGPT 通道修复，包括流式故障转移、工具调用路由、缓存计费明细等。
 - 支持 **Cap 自建验证码**（`cap:<key>` 或 `cap:<base>|<key>`），CSP 已放行 `'wasm-unsafe-eval'`。
 - 监控分组按 平台顺序 → `sort_order` → 请求量 排序。
 - 监控缓存率不再把零缓存请求计入分母，Token / TPM 统计不受影响；附[历史数据重算 SQL](docs/sql/channel_monitor_v2_recompute_cache.sql)。
 
 ## 快速开始
 
-暂未提供预构建镜像，请从源码构建：
+预构建镜像由 GitHub Actions 自动发布到 GHCR，支持 `linux/amd64` 与 `linux/arm64`：
+
+```bash
+docker pull ghcr.io/llj99999/sub2api-next:latest
+```
+
+| 标签 | 说明 |
+| --- | --- |
+| `latest` / `main` | `main` 分支最新构建 |
+| `sha-<短哈希>` | 指定提交，便于固定版本与回滚 |
+| `<版本号>` | 打 `v*` 标签时发布 |
+
+使用 Docker Compose 部署（`deploy/docker-compose.yml` 已指向上述镜像）：
 
 ```bash
 git clone https://github.com/LLJ99999/sub2api-next.git
-cd sub2api-next
-docker build -t sub2api-next:latest .
+cd sub2api-next/deploy
+cp .env.example .env   # 至少设置 POSTGRES_PASSWORD
+docker compose up -d
 ```
 
-然后按 [部署说明](deploy/README.md) 使用 Docker Compose 部署，把 `deploy/docker-compose.yml` 中 `sub2api` 服务的 `image` 改为 `sub2api-next:latest` 即可。首次启动若未指定管理员账号，会在日志 `Generated admin` 中输出随机邮箱和密码。
+详细配置见 [部署说明](deploy/README.md)。首次启动若未指定管理员账号，会在日志 `Generated admin` 中输出随机邮箱和密码。也可以自行构建：`docker build -t sub2api-next:latest .`
 
-**从上游版本升级**：备份数据库后替换镜像重启即可。启动时自动执行新增迁移 `310`（上游变化历史）、`311`（质量实测）、`320`（缓存率口径）。
+**从上游版本升级**：备份数据库后替换镜像重启即可。启动时自动执行新增迁移 `310`（上游变化历史）、`311`（质量实测）、`320`（缓存率口径）、`321` / `322`（探测提示词轮换）。
 
 更多文档：[新人入门](docs/新人入门.md) · [质量运维](docs/account-quality-operations.md) · [Excel / BPS](docs/excel-bps.md) · [支付配置](docs/PAYMENT_CN.md)
 
@@ -82,7 +102,7 @@ docker build -t sub2api-next:latest .
 | 前端 | Vue 3 · Vite · TailwindCSS |
 | 存储 | PostgreSQL 15+ · Redis 7+ |
 | 协议 | OpenAI Responses / Chat Completions · Anthropic Messages · Gemini · SSE · WebSocket |
-| 交付 | Docker Compose · GitHub Actions（Go 单测 / 集成测试 / golangci-lint / 前端测试 / wire 校验） |
+| 交付 | Docker Compose · GitHub Actions（Go 单测 / 集成测试 / golangci-lint / 前端测试 / wire 校验）· GHCR 多架构镜像 |
 
 ## 已知限制
 
